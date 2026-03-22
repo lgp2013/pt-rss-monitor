@@ -7,12 +7,35 @@ on:
     branches: [ "main" ]
 
 jobs:
-
   build:
-
     runs-on: ubuntu-latest
 
     steps:
     - uses: actions/checkout@v4
+
+    # Log in to Docker Hub
+    - name: Log in to Docker Hub
+      uses: docker/login-action@v2
+      with:
+        username: ${{ secrets.DOCKER_USERNAME }}
+        password: ${{ secrets.DOCKER_PASSWORD }}
+
+    # Build the Docker image
     - name: Build the Docker image
       run: docker build . --file Dockerfile --tag my-image-name:$(date +%s)
+
+    # Save Docker image as tar file
+    - name: Save Docker image as tar file
+      run: |
+        docker save my-image-name:$(date +%s) -o my-image-name.tar
+
+    # Upload the tar file as an artifact
+    - name: Upload Docker image tar as artifact
+      uses: actions/upload-artifact@v2
+      with:
+        name: docker-image
+        path: my-image-name.tar
+
+    # Optionally push the image to Docker Hub
+    - name: Push Docker image to Docker Hub
+      run: docker push my-image-name:$(date +%s)
