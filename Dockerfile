@@ -29,12 +29,17 @@ COPY frontend/src ./src
 RUN npm run build
 
 # Stage 3: Production
-FROM node:20-alpine AS production
+FROM node:20-slim AS production
 
 WORKDIR /app
 
 # Install build dependencies for better-sqlite3
-RUN apk add --no-cache python3 make g++
+RUN apt-get update && \
+    DEBIAN_FRONTEND=noninteractive \
+    apt-get install -y --no-install-recommends \
+        python3 make g++ && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
 
 # Use Chinese npm mirror
 RUN npm config set registry https://registry.npmmirror.com
