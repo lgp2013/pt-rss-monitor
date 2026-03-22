@@ -2,8 +2,12 @@
 FROM node:20-alpine AS backend-builder
 
 WORKDIR /app/backend
+
+# Use Chinese npm mirror
+RUN npm config set registry https://registry.npmmirror.com
+
 COPY backend/package*.json ./
-RUN npm ci
+RUN npm install
 COPY backend/tsconfig.json ./
 COPY backend/src ./src
 RUN npm run build
@@ -12,8 +16,12 @@ RUN npm run build
 FROM node:20-alpine AS frontend-builder
 
 WORKDIR /app/frontend
+
+# Use Chinese npm mirror
+RUN npm config set registry https://registry.npmmirror.com
+
 COPY frontend/package*.json ./
-RUN npm ci
+RUN npm install
 COPY frontend/vite.config.ts ./
 COPY frontend/tsconfig*.json ./
 COPY frontend/index.html ./
@@ -28,9 +36,12 @@ WORKDIR /app
 # Install build dependencies for better-sqlite3
 RUN apk add --no-cache python3 make g++
 
+# Use Chinese npm mirror
+RUN npm config set registry https://registry.npmmirror.com
+
 # Copy and install backend dependencies
 COPY --from=backend-builder /app/backend/package*.json ./
-RUN npm ci --only=production
+RUN npm install --only=production
 
 # Copy backend build
 COPY --from=backend-builder /app/backend/dist ./dist
