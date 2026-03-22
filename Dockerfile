@@ -34,7 +34,11 @@ FROM node:20-slim AS production
 WORKDIR /app
 
 # Install build dependencies for better-sqlite3
-RUN apt-get update && \
+# Use Alibaba Cloud Debian mirror for CN network speed
+RUN sed -i 's|http://deb.debian.org|https://mirrors.aliyun.com/debian|g' /etc/apt/sources.list.d/*.list 2>/dev/null || true && \
+    echo 'deb https://mirrors.aliyun.com/debian/ bookworm main non-free-firmware' > /etc/apt/sources.list && \
+    echo 'deb https://mirrors.aliyun.com/debian-security/ bookworm-security main non-free-firmware' >> /etc/apt/sources.list && \
+    apt-get update && \
     DEBIAN_FRONTEND=noninteractive \
     apt-get install -y --no-install-recommends \
         python3 make g++ && \
