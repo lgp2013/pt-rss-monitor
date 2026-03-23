@@ -118,13 +118,21 @@ function extractInfo(item: Record<string, any>): Partial<Resource> {
     }
   }
   
-  // Try to extract poster URL from enclosure or media content
+  // Try to extract poster URL from enclosure or media content or description
   let posterUrl: string | null = null;
   
+  // Check description field for img src (PT sites often put images here)
+  const descText = `${item.description || ''} ${item.content || ''}`;
+  if (descText) {
+    const imgMatch = descText.match(/src=["']([^"']+\.(?:jpg|jpeg|png|gif|webp)[^"']*)["']/i);
+    if (imgMatch && imgMatch[1] && !imgMatch[1].includes('width') && imgMatch[1].length > 10) {
+      posterUrl = imgMatch[1];
+    }
+  }
+  
   // Check enclosure - PT sites often use enclosure for images
-  if (item.enclosure?.url) {
+  if (!posterUrl && item.enclosure?.url) {
     const encUrl = String(item.enclosure.url);
-    // Skip if URL contains "width" or is clearly not an image
     if (!encUrl.includes('width') && !encUrl.includes('height') && encUrl.length > 10) {
       posterUrl = encUrl;
     }
