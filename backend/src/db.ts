@@ -1,73 +1,3 @@
-<<<<<<< HEAD
-import Database from 'better-sqlite3';
-import { existsSync, mkdirSync } from 'fs';
-import { dirname } from 'path';
-
-const DB_PATH = process.env.DB_PATH || './data/pt-rss-monitor.db';
-
-// Ensure data directory exists
-const dir = dirname(DB_PATH);
-if (!existsSync(dir)) {
-  mkdirSync(dir, { recursive: true });
-}
-
-const db = new Database(DB_PATH);
-
-// Enable foreign keys
-db.pragma('foreign_keys = ON');
-
-// Initialize tables
-db.exec(`
-  CREATE TABLE IF NOT EXISTS sources (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    name TEXT NOT NULL,
-    url TEXT NOT NULL UNIQUE,
-    category TEXT DEFAULT '其他',
-    fetch_interval INTEGER DEFAULT 30,
-    enabled INTEGER DEFAULT 1,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-  );
-
-  CREATE TABLE IF NOT EXISTS resources (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    source_id INTEGER NOT NULL,
-    title TEXT NOT NULL,
-    link TEXT NOT NULL,
-    guid TEXT,
-    pub_date DATETIME,
-    seeders INTEGER DEFAULT 0,
-    leechers INTEGER DEFAULT 0,
-    downloads INTEGER DEFAULT 0,
-    free_tag TEXT,
-    size TEXT,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (source_id) REFERENCES sources(id) ON DELETE CASCADE
-  );
-
-  CREATE TABLE IF NOT EXISTS settings (
-    key TEXT PRIMARY KEY,
-    value TEXT
-  );
-
-  CREATE INDEX IF NOT EXISTS idx_resources_source_id ON resources(source_id);
-  CREATE INDEX IF NOT EXISTS idx_resources_created_at ON resources(created_at);
-  CREATE INDEX IF NOT EXISTS idx_resources_pub_date ON resources(pub_date);
-`);
-
-// Insert default settings if not exist
-const defaultSettings = [
-  ['global_fetch_interval', '30'],
-  ['auto_fetch_enabled', 'true'],
-  ['theme', 'system'],
-  ['resources_retention_days', '30'],
-];
-
-const insertSetting = db.prepare('INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)');
-for (const [key, value] of defaultSettings) {
-  insertSetting.run(key, value);
-}
-
-=======
 // In-memory database with file persistence for development
 
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'fs';
@@ -253,7 +183,7 @@ class InMemoryDB {
           return this.sources;
         } else if (sql.includes('FROM resources r JOIN sources s')) {
           // Handle JOIN query for resources with source info
-          let filteredResources = this.resources.map(resource => {
+          return this.resources.map(resource => {
             const source = this.sources.find(s => s.id === resource.source_id);
             return {
               ...resource,
@@ -261,81 +191,6 @@ class InMemoryDB {
               category: source?.category || ''
             };
           });
-
-          // Apply WHERE clause filters
-          if (sql.includes('WHERE')) {
-            if (sql.includes('source_id =')) {
-              const sourceId = params.find(p => typeof p === 'number');
-              if (sourceId) {
-                filteredResources = filteredResources.filter(r => r.source_id === sourceId);
-              }
-            }
-            if (sql.includes('category =')) {
-              const category = params.find(p => typeof p === 'string');
-              if (category) {
-                filteredResources = filteredResources.filter(r => r.category === category);
-              }
-            }
-            if (sql.includes('title LIKE')) {
-              const search = params.find(p => typeof p === 'string' && p.includes('%'));
-              if (search) {
-                const searchTerm = search.replace(/%/g, '');
-                filteredResources = filteredResources.filter(r => r.title.includes(searchTerm));
-              }
-            }
-          }
-
-          // Apply ORDER BY
-          if (sql.includes('ORDER BY')) {
-            const match = sql.match(/ORDER BY r\.(\w+)\s+(ASC|DESC)/i);
-            if (match) {
-              const [, sortColumn, sortOrder] = match;
-              const asc = sortOrder.toLowerCase() === 'asc';
-              filteredResources.sort((a, b) => {
-                let aValue = a[sortColumn as keyof typeof a];
-                let bValue = b[sortColumn as keyof typeof b];
-                
-                // Handle null/undefined - push to end
-                if (aValue == null && bValue == null) return 0;
-                if (aValue == null) return asc ? 1 : -1;
-                if (bValue == null) return asc ? -1 : 1;
-
-                // Handle string comparison
-                if (typeof aValue === 'string' && typeof bValue === 'string') {
-                  return asc ? aValue.localeCompare(bValue) : bValue.localeCompare(aValue);
-                }
-                // Handle number comparison
-                if (typeof aValue === 'number' && typeof bValue === 'number') {
-                  return asc ? aValue - bValue : bValue - aValue;
-                }
-                // Fallback string conversion
-                const aStr = String(aValue);
-                const bStr = String(bValue);
-                return asc ? aStr.localeCompare(bStr) : bStr.localeCompare(aStr);
-              });
-            }
-          }
-
-          // Apply LIMIT and OFFSET - use params array since SQL has ? placeholders
-          if (sql.includes('LIMIT')) {
-            // LIMIT and OFFSET are the last two params
-            const limit = params[params.length - 2];
-            const offset = params[params.length - 1];
-            if (typeof limit === 'number' && typeof offset === 'number') {
-              filteredResources = filteredResources.slice(offset, offset + limit);
-            } else {
-              // Fallback: try to parse from SQL string
-              const limitMatch = sql.match(/LIMIT\s+\?\s+OFFSET\s+\?/);
-              if (limitMatch && params.length >= 2) {
-                filteredResources = filteredResources.slice(
-                  Number(params[params.length - 1]),
-                  Number(params[params.length - 1]) + Number(params[params.length - 2])
-                );
-              }
-            }
-          }
-
-          return filteredResources;
         } else if (sql.includes('SELECT * FROM resources')) {
           return this.resources;
         } else if (sql.includes('SELECT * FROM settings')) {
@@ -489,5 +344,4 @@ class InMemoryDB {
 }
 
 const db = new InMemoryDB();
->>>>>>> b3b2b8ce71669aa78e478944f8439346c72c5bd9
 export default db;
