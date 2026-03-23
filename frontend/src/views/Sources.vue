@@ -136,7 +136,7 @@ background: var(--primary-hover);
 .empty-state {
 text-align: center;
 padding: 60px;
-background: var(--card-bg);
+background: var(--bg-secondary);
 border-radius: 8px;
 box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
 }

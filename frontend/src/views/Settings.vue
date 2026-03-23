@@ -75,7 +75,7 @@ color: var(--text-primary);
 }
 
 .settings-card {
-background: var(--card-bg);
+background: var(--bg-secondary);
 padding: 20px;
 border-radius: 8px;
 box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
@@ -86,7 +86,7 @@ margin-bottom: 30px;
 font-size: 1.5rem;
 margin-bottom: 20px;
 color: var(--text-primary);
-border-bottom: 1px solid var(--border-color);
+border-bottom: 1px solid var(--border);
 padding-bottom: 10px;
 }
 
@@ -104,16 +104,16 @@ font-weight: 500;
 .form-group input {
 width: 100%;
 padding: 10px;
-border: 1px solid var(--border-color);
+border: 1px solid var(--border);
 border-radius: 4px;
-background: var(--input-bg);
+background: var(--bg-primary);
 color: var(--text-primary);
 font-size: 1rem;
 }
 
 .form-group input:focus {
 outline: none;
-border-color: var(--primary-color);
+border-color: var(--primary);
 box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2);
 }
 
@@ -122,7 +122,7 @@ margin-top: 30px;
 }
 
 .save-button {
-background: var(--primary-color);
+background: var(--primary);
 color: white;
 border: none;
 padding: 10px 20px;
