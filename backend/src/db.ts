@@ -215,35 +215,35 @@ class InMemoryDB {
           
           console.log(`[DEBUG JOIN] after map: ${results.length}`);
 
-          // Filter by source_id if present
-          if (sql.includes('r.source_id = ?') && params.length > 0 && params[0] !== undefined) {
-            const sid = Number(params[0]);
+          // Filter by source_id if present (always first param if exists)
+          const hasSourceIdFilter = sql.includes('r.source_id = ?');
+          const hasCategoryFilter = sql.includes('s.category = ?');
+          const hasSearchFilter = sql.includes('title LIKE ?');
+          
+          let paramIdx = 0;
+          
+          if (hasSourceIdFilter && params[paramIdx] !== undefined && params[paramIdx] !== null) {
+            const sid = Number(params[paramIdx]);
             if (!isNaN(sid)) {
               results = results.filter(r => r.source_id === sid);
-              console.log(`[DEBUG JOIN] after source_id filter: ${results.length}`);
+              console.log(`[DEBUG JOIN] after source_id filter (${sid}): ${results.length}`);
             }
           }
+          paramIdx++;
           
-          // Filter by category if present
-          if (sql.includes('s.category = ?')) {
-            // Find category param index (could be 0, 1, or 2 depending on if source_id was present)
-            const idx = sql.includes('r.source_id = ?') ? 1 : 0;
-            if (params[idx] !== undefined) {
-              const cat = params[idx];
+          if (hasCategoryFilter && params[paramIdx] !== undefined && params[paramIdx] !== null) {
+            const cat = String(params[paramIdx]);
+            if (cat) {
               results = results.filter(r => r.category === cat);
               console.log(`[DEBUG JOIN] after category filter (${cat}): ${results.length}`);
             }
           }
+          paramIdx++;
           
-          // Filter by title search if present (case-insensitive)
-          if (sql.includes('title LIKE ?')) {
-            // Find search param index
-            let idx = 0;
-            if (sql.includes('r.source_id = ?')) idx++;
-            if (sql.includes('s.category = ?')) idx++;
-            if (params[idx] !== undefined) {
-              const search = String(params[idx]).replace(/%/g, '').toLowerCase();
-              results = results.filter(r => r.title.toLowerCase().includes(search));
+          if (hasSearchFilter && params[paramIdx] !== undefined && params[paramIdx] !== null) {
+            const search = String(params[paramIdx]).replace(/%/g, '');
+            if (search) {
+              results = results.filter(r => r.title.toLowerCase().includes(search.toLowerCase()));
               console.log(`[DEBUG JOIN] after search filter (${search}): ${results.length}`);
             }
           }
