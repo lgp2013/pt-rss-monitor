@@ -183,7 +183,7 @@ class InMemoryDB {
           return this.sources;
         } else if (sql.includes('FROM resources r JOIN sources s')) {
           // Handle JOIN query for resources with source info
-          return this.resources.map(resource => {
+          let results = this.resources.map(resource => {
             const source = this.sources.find(s => s.id === resource.source_id);
             return {
               ...resource,
@@ -191,6 +191,17 @@ class InMemoryDB {
               category: source?.category || ''
             };
           });
+
+          // Apply LIMIT and OFFSET - they are the last two params
+          if (sql.includes('LIMIT ? OFFSET ?') && params.length >= 2) {
+            const limit = Number(params[params.length - 2]);
+            const offset = Number(params[params.length - 1]);
+            if (!isNaN(limit) && !isNaN(offset)) {
+              results = results.slice(offset, offset + limit);
+            }
+          }
+
+          return results;
         } else if (sql.includes('SELECT * FROM resources')) {
           return this.resources;
         } else if (sql.includes('SELECT * FROM settings')) {
