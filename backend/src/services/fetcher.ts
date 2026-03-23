@@ -179,8 +179,8 @@ export async function fetchSource(source: Source): Promise<number> {
         const guid = item.guid || item.link || '';
         const link = item.link || '';
         console.log(`[FETCHER] Checking item: ${item.title?.substring(0, 50)}...`);
-        const existing = checkStmt.get(source.id, guid, link);
-        if (!existing) {
+        const existingId = checkStmt.get(source.id, guid, link);
+        if (!existingId) {
           insertStmt.run(
             source.id,
             item.title || 'Untitled',
@@ -198,7 +198,21 @@ export async function fetchSource(source: Source): Promise<number> {
           newCount++;
           console.log(`[FETCHER] Inserted: ${item.title?.substring(0, 30)}...`);
         } else {
-          console.log(`[FETCHER] Skipped duplicate: ${item.title?.substring(0, 30)}...`);
+          // Resource exists, check if we need to update subtitle or poster_url
+          const existing = db.prepare('SELECT * FROM resources WHERE id = ?').get(existingId.id);
+          if (existing && (item.subtitle || item.poster_url)) {
+            // Update only if we have new values
+            const updateStmt = db.prepare(`
+              UPDATE resources 
+              SET subtitle = COALESCE(?, subtitle),
+                  poster_url = COALESCE(?, poster_url)
+              WHERE id = ?
+            `);
+            updateStmt.run(item.subtitle, item.poster_url, existingId.id);
+            console.log(`[FETCHER] Updated fields for: ${item.title?.substring(0, 30)}...`);
+          } else {
+            console.log(`[FETCHER] Skipped duplicate: ${item.title?.substring(0, 30)}...`);
+          }
         }
       }
     });
