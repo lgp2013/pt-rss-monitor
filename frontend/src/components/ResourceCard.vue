@@ -101,6 +101,14 @@ const badgeClass = computed(() => {
           <span class="stat-label">互助</span>
           <span class="stat-value">{{ resource.leechers }}</span>
         </div>
+        <div class="stat" v-if="resource.free_tag">
+          <span class="stat-label">折扣</span>
+          <span class="stat-value" :class="badgeClass">{{ resource.free_tag }}</span>
+        </div>
+        <div class="stat">
+          <span class="stat-label">时间</span>
+          <span class="stat-value">{{ formatTime(resource.created_at) }}</span>
+        </div>
       </div>
       <div class="actions">
         <button class="btn btn-primary" @click="openLink">打开</button>
