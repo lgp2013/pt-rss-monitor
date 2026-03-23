@@ -181,7 +181,8 @@ function extractInfo(item: Record<string, any>): Partial<Resource> {
     downloads: parseDownloads(text),
     subtitle,
     poster_url: posterUrl,
-    category: itemCategory, // Override source category with item's category if present
+    category: itemCategory,
+    description: descText ? descText.substring(0, 500) : null, // Store first 500 chars of description
   };
 }
 
@@ -194,8 +195,8 @@ export async function fetchSource(source: Source): Promise<number> {
     console.log(`[FETCHER] Fetching source: ${source.name}, items: ${feed.items?.length || 0}`);
 
     const insertStmt = db.prepare(`
-      INSERT INTO resources (source_id, title, link, guid, pub_date, seeders, leechers, downloads, free_tag, size, subtitle, poster_url, category)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO resources (source_id, title, link, guid, pub_date, seeders, leechers, downloads, free_tag, size, subtitle, poster_url, category, description)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
     const checkStmt = db.prepare(`
@@ -222,23 +223,25 @@ export async function fetchSource(source: Source): Promise<number> {
             item.size || null,
             item.subtitle || null,
             item.poster_url || null,
-            item.category || source.category // Use item category if present, else source category
+            item.category || source.category,
+            item.description || null
           );
           newCount++;
           console.log(`[FETCHER] Inserted: ${item.title?.substring(0, 30)}...`);
         } else {
           // Resource exists, check if we need to update subtitle or poster_url
           const existing = db.prepare('SELECT * FROM resources WHERE id = ?').get(existingId.id);
-          if (existing && (item.subtitle || item.poster_url || item.category)) {
+          if (existing && (item.subtitle || item.poster_url || item.category || item.description)) {
             // Update only if we have new values
             const updateStmt = db.prepare(`
               UPDATE resources 
               SET subtitle = COALESCE(?, subtitle),
                   poster_url = COALESCE(?, poster_url),
-                  category = COALESCE(?, category)
+                  category = COALESCE(?, category),
+                  description = COALESCE(?, description)
               WHERE id = ?
             `);
-            updateStmt.run(item.subtitle, item.poster_url, item.category, existingId.id);
+            updateStmt.run(item.subtitle, item.poster_url, item.category, item.description, existingId.id);
             console.log(`[FETCHER] Updated fields for: ${item.title?.substring(0, 30)}...`);
           } else {
             console.log(`[FETCHER] Skipped duplicate: ${item.title?.substring(0, 30)}...`);

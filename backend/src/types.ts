@@ -24,6 +24,7 @@ export interface Resource {
   subtitle?: string | null;
   poster_url?: string | null;
   category?: string | null;
+  description?: string | null;
 }
 
 export interface Setting {
