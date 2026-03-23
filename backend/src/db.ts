@@ -196,6 +196,7 @@ class InMemoryDB {
           if (sql.includes('LIMIT ? OFFSET ?') && params.length >= 2) {
             const limit = Number(params[params.length - 2]);
             const offset = Number(params[params.length - 1]);
+            console.log(`[DEBUG] JOIN query: total=${results.length}, limit=${limit}, offset=${offset}`);
             if (!isNaN(limit) && !isNaN(offset)) {
               results = results.slice(offset, offset + limit);
             }
