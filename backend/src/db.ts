@@ -183,7 +183,7 @@ class InMemoryDB {
           return this.sources;
         } else if (sql.includes('FROM resources r JOIN sources s')) {
           // Handle JOIN query for resources with source info
-          return this.resources.map(resource => {
+          let filteredResources = this.resources.map(resource => {
             const source = this.sources.find(s => s.id === resource.source_id);
             return {
               ...resource,
@@ -191,6 +191,65 @@ class InMemoryDB {
               category: source?.category || ''
             };
           });
+
+          // Apply WHERE clause filters
+          if (sql.includes('WHERE')) {
+            if (sql.includes('source_id =')) {
+              const sourceId = params.find(p => typeof p === 'number');
+              if (sourceId) {
+                filteredResources = filteredResources.filter(r => r.source_id === sourceId);
+              }
+            }
+            if (sql.includes('category =')) {
+              const category = params.find(p => typeof p === 'string');
+              if (category) {
+                filteredResources = filteredResources.filter(r => r.category === category);
+              }
+            }
+            if (sql.includes('title LIKE')) {
+              const search = params.find(p => typeof p === 'string' && p.includes('%'));
+              if (search) {
+                const searchTerm = search.replace(/%/g, '');
+                filteredResources = filteredResources.filter(r => r.title.includes(searchTerm));
+              }
+            }
+          }
+
+          // Apply ORDER BY
+          if (sql.includes('ORDER BY')) {
+            const match = sql.match(/ORDER BY r\.(\w+) (ASC|DESC)/i);
+            if (match) {
+              const [, sortColumn, sortOrder] = match;
+              filteredResources.sort((a, b) => {
+                let aValue = a[sortColumn as keyof typeof a];
+                let bValue = b[sortColumn as keyof typeof b];
+
+                // Handle string vs number comparison
+                if (typeof aValue === 'string' && typeof bValue === 'string') {
+                  return sortOrder.toLowerCase() === 'asc' ? 
+                    aValue.localeCompare(bValue) : 
+                    bValue.localeCompare(aValue);
+                } else if (typeof aValue === 'number' && typeof bValue === 'number') {
+                  return sortOrder.toLowerCase() === 'asc' ? 
+                    aValue - bValue : 
+                    bValue - aValue;
+                }
+                return 0;
+              });
+            }
+          }
+
+          // Apply LIMIT and OFFSET
+          if (sql.includes('LIMIT')) {
+            const limitMatch = sql.match(/LIMIT (\d+) OFFSET (\d+)/);
+            if (limitMatch) {
+              const limit = parseInt(limitMatch[1], 10);
+              const offset = parseInt(limitMatch[2], 10);
+              filteredResources = filteredResources.slice(offset, offset + limit);
+            }
+          }
+
+          return filteredResources;
         } else if (sql.includes('SELECT * FROM resources')) {
           return this.resources;
         } else if (sql.includes('SELECT * FROM settings')) {

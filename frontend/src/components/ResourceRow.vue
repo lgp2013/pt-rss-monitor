@@ -1,27 +1,22 @@
 <template>
   <tr class="resource-row">
+    <td>{{ resource.source_name }}</td>
     <td>
       <div class="resource-title">
-        <a :href="resource.link" target="_blank" rel="noopener noreferrer">{{ resource.title }}</a>
-        <div class="resource-meta">
-          <span class="resource-source">{{ resource.source_name }}</span>
-          <span class="resource-category">{{ resource.category }}</span>
-        </div>
+        <a :href="resource.link" target="_blank" rel="noopener noreferrer">
+          {{ resource.title }}
+          <span v-if="resource.free_tag" class="badge" :class="{
+            'badge-success': resource.free_tag === 'FREE',
+            'badge-warning': resource.free_tag.includes('%')
+          }">
+            {{ resource.free_tag }}
+          </span>
+        </a>
       </div>
     </td>
-    <td>
-      <span v-if="resource.free_tag" class="badge" :class="{
-        'badge-success': resource.free_tag === 'FREE',
-        'badge-warning': resource.free_tag.includes('%')
-      }">
-        {{ resource.free_tag }}
-      </span>
-    </td>
-    <td>{{ resource.size }}</td>
-    <td>{{ resource.seeders }}</td>
-    <td>{{ resource.leechers }}</td>
-    <td>{{ resource.downloads }}</td>
     <td>{{ formatDate(resource.pub_date || resource.created_at) }}</td>
+    <td>{{ resource.seeders }}</td>
+    <td>{{ resource.downloads }}</td>
     <td>
       <button class="btn btn-danger btn-sm" @click="deleteResource">删除</button>
     </td>
