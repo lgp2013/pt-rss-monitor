@@ -84,6 +84,8 @@ export async function fetchSource(source: Source): Promise<number> {
     const feed = await parser.parseURL(source.url);
     let newCount = 0;
 
+    console.log(`[FETCHER] Fetching source: ${source.name}, items: ${feed.items?.length || 0}`);
+
     const insertStmt = db.prepare(`
       INSERT INTO resources (source_id, title, link, guid, pub_date, seeders, leechers, downloads, free_tag, size)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -95,13 +97,16 @@ export async function fetchSource(source: Source): Promise<number> {
 
     const insertMany = db.transaction((items: any[]) => {
       for (const item of items) {
-        const existing = checkStmt.get(source.id, item.guid || item.link, item.link);
+        const guid = item.guid || item.link || '';
+        const link = item.link || '';
+        console.log(`[FETCHER] Checking item: ${item.title?.substring(0, 50)}...`);
+        const existing = checkStmt.get(source.id, guid, link);
         if (!existing) {
           insertStmt.run(
             source.id,
             item.title || 'Untitled',
-            item.link || '',
-            item.guid || item.link || '',
+            link,
+            guid,
             item.pubDate || null,
             item.seeders || 0,
             item.leechers || 0,
@@ -110,6 +115,9 @@ export async function fetchSource(source: Source): Promise<number> {
             item.size || null
           );
           newCount++;
+          console.log(`[FETCHER] Inserted: ${item.title?.substring(0, 30)}...`);
+        } else {
+          console.log(`[FETCHER] Skipped duplicate: ${item.title?.substring(0, 30)}...`);
         }
       }
     });
@@ -120,6 +128,9 @@ export async function fetchSource(source: Source): Promise<number> {
     }));
 
     insertMany(items);
+    
+    console.log(`[FETCHER] Done fetching ${source.name}, newCount=${newCount}`);
+    console.log(`[FETCHER] Total resources in DB: ${db.prepare('SELECT * FROM resources').all().length}`);
 
     // Update last fetch time
     db.prepare('UPDATE sources SET created_at = created_at WHERE id = ?').run(source.id);
