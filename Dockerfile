@@ -58,11 +58,11 @@ COPY --from=backend-builder /app/backend/dist ./dist
 COPY --from=frontend-builder /app/frontend/dist ./frontend-dist
 
 # Create data directory
-RUN mkdir -p /app/data
+RUN mkdir -p /app/data && chown -R node:node /app/data
 
 ENV NODE_ENV=production
 ENV PORT=3000
-ENV DB_PATH=/app/data/pt-rss-monitor.db
+ENV DB_PATH=/app/data/pt-rss-monitor.json
 ENV FRONTEND_DIST=/app/frontend-dist
 
 EXPOSE 3000

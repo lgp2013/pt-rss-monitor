@@ -51,11 +51,16 @@ class InMemoryDB {
 
   constructor() {
     // Set database file path
-    const dataDir = resolve(process.cwd(), './data');
-    if (!existsSync(dataDir)) {
-      mkdirSync(dataDir, { recursive: true });
+    const dbPathEnv = process.env.DB_PATH;
+    if (dbPathEnv) {
+      this.dbPath = dbPathEnv;
+    } else {
+      const dataDir = resolve(process.cwd(), './data');
+      if (!existsSync(dataDir)) {
+        mkdirSync(dataDir, { recursive: true });
+      }
+      this.dbPath = resolve(dataDir, 'pt-rss-monitor.json');
     }
-    this.dbPath = resolve(dataDir, 'pt-rss-monitor.json');
 
     // Load data from file if it exists
     this.loadData();
