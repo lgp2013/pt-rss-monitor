@@ -28,6 +28,7 @@ interface Resource {
   created_at: string;
   subtitle?: string | null;
   poster_url?: string | null;
+  category?: string | null;
 }
 
 interface Setting {
@@ -206,7 +207,8 @@ class InMemoryDB {
             return {
               ...r,
               source_name: src?.name || '',
-              category: src?.category || ''
+              // Use item's category if present, else fall back to source category
+              category: r.category || src?.category || ''
             };
           });
           

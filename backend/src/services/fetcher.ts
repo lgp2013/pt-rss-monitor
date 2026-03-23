@@ -102,13 +102,13 @@ function extractInfo(item: Record<string, any>): Partial<Resource> {
   
   // Extract subtitle from title - format specs after the main title
   // Example: "BLUE EYE SAMURAI S01 2023 Complete 1080p Netflix WEB-DL AVC DDP 5.1 Atmos-DBTV"
-  // -> "1080p Netflix WEB-DL AVC DDP 5.1 Atmos"
+  // -> "1080p Netflix WEB-DL AVC DDP 5.1"
   let subtitle: string | null = null;
-  
-  // Pattern: resolution + source + format specs
-  const subtitleMatch = title.match(/(?:^|[.\s])(((?:2160p|1080p|720p|480p)\s+(?:Netflix|Amazon|AMZN|Apple|HBO|Disney|DP|WEB-DL|WEB|Hulu|BLURAY|BRRip|DVDRip|HDRip)(?:\s+[A-Z0-9.]+){1,5})/i);
-  if (subtitleMatch && subtitleMatch[1]) {
-    subtitle = subtitleMatch[1].replace(/\./g, ' ').trim();
+  const resMatch = title.match(/(2160p|1080p|720p|480p)/i);
+  if (resMatch) {
+    const idx = title.indexOf(resMatch[1]);
+    const afterRes = title.substring(idx + resMatch[1].length);
+    subtitle = (resMatch[1] + ' ' + afterRes).substring(0, 60).trim();
   }
   
   // Try to extract poster URL from description (most reliable for PT sites)

@@ -23,6 +23,7 @@ export interface Resource {
   created_at: string;
   subtitle?: string | null;
   poster_url?: string | null;
+  category?: string | null;
 }
 
 export interface Setting {
