@@ -11,6 +11,8 @@ interface Source {
   fetch_interval: number;
   enabled: number;
   created_at: string;
+  cookie?: string;
+  cookies?: Record<string, string>;
 }
 
 interface Resource {
