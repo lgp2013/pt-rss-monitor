@@ -103,18 +103,17 @@ function extractInfo(item: Record<string, any>): Partial<Resource> {
   // Example: "Movie.Name.2026.2160p.WEB-DL.H265.10bit.DDP5.1" -> "2160p WEB-DL H265 10bit DDP5.1"
   let subtitle = null;
   
-  // Pattern: after year or resolution, extract format specs
+  // Pattern 1: look for resolution followed by format specs with dot separator
+  // e.g. "Name.2026.2160p.WEB-DL.H265" -> "2160p WEB-DL H265"
   const subtitleMatch = title.match(/\.((?:2160p|1080p|720p|480p)(?:\.[A-Z0-9]+)+)/i);
   if (subtitleMatch) {
     subtitle = subtitleMatch[1].replace(/\./g, ' ').trim();
   } else {
-    // Alternative: extract everything after the year pattern
-    const yearMatch = title.match(/\.(\d{4})\./);
-    if (yearMatch) {
-      const afterYear = title.split(yearMatch[0])[1];
-      if (afterYear && afterYear.length > 5 && afterYear.length < 150) {
-        subtitle = afterYear.replace(/\./g, ' ').trim();
-      }
+    // Pattern 2: space before resolution, then extract format specs
+    // e.g. "Name S01 2025 2160p WEB-DL DDP2.0 H265" -> "2160p WEB-DL DDP2.0 H265"
+    const spaceMatch = title.match(/(?:^|\s)((?:2160p|1080p|720p|480p)\s+(?:WEB-DL|BLURAY|BRRip|DVDRip|HDRip)(?:\s+[A-Z0-9.]+)*)/i);
+    if (spaceMatch && spaceMatch[1]) {
+      subtitle = spaceMatch[1].replace(/\./g, ' ').trim();
     }
   }
   
