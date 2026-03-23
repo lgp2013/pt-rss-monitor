@@ -107,8 +107,12 @@ function parseDownloads(text: string): number {
 // Extract info from item
 function extractInfo(item: Record<string, any>): Partial<Resource> {
   const title = item.title || '';
-  const text = `${title} ${item.description || ''} ${item.content || ''}`;
-  const descText = item.description || '';
+  // Check various fields for description content
+  const rawDesc = item.description || item.content || item.summary || '';
+  console.log(`[FETCHER DEBUG] item.description type: ${typeof item.description}, length: ${item.description?.length || 0}`);
+  console.log(`[FETCHER DEBUG] item.content type: ${typeof item.content}, length: ${item.content?.length || 0}`);
+  const text = `${title} ${rawDesc}`;
+  const descText = rawDesc;
   
   // Extract clean title and free tag
   const { title: cleanTitle, freeTag } = extractCleanTitle(title);
