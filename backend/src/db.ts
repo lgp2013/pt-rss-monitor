@@ -183,6 +183,7 @@ class InMemoryDB {
           return this.sources;
         } else if (sql.includes('FROM resources r JOIN sources s')) {
           // Handle JOIN query for resources with source info
+          console.log(`[DEBUG] JOIN branch hit, resources count=${this.resources.length}, params=${JSON.stringify(params)}`);
           let results = this.resources.map(resource => {
             const source = this.sources.find(s => s.id === resource.source_id);
             return {
@@ -193,10 +194,10 @@ class InMemoryDB {
           });
 
           // Apply LIMIT and OFFSET - they are the last two params
-          if (sql.includes('LIMIT ? OFFSET ?') && params.length >= 2) {
+          if (sql.includes('LIMIT') && params.length >= 2) {
             const limit = Number(params[params.length - 2]);
             const offset = Number(params[params.length - 1]);
-            console.log(`[DEBUG] JOIN query: total=${results.length}, limit=${limit}, offset=${offset}`);
+            console.log(`[DEBUG] LIMIT/OFFSET: total=${results.length}, limit=${limit}, offset=${offset}`);
             if (!isNaN(limit) && !isNaN(offset)) {
               results = results.slice(offset, offset + limit);
             }
