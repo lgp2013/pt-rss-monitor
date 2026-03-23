@@ -184,17 +184,49 @@ class InMemoryDB {
         } else if (sql.includes('FROM resources r JOIN sources s')) {
           // Handle JOIN query for resources with source info
           console.log(`[DEBUG] JOIN branch hit, resources count=${this.resources.length}, params=${JSON.stringify(params)}`);
-          let results = this.resources.map(resource => {
-            const source = this.sources.find(s => s.id === resource.source_id);
-            return {
-              ...resource,
-              source_name: source?.name || '',
-              category: source?.category || ''
-            };
-          });
+          let results = this.resources
+            .map(resource => {
+              const source = this.sources.find(s => s.id === resource.source_id);
+              return {
+                ...resource,
+                source_name: source?.name || '',
+                category: source?.category || ''
+              };
+            });
+
+          // Apply WHERE clause filters based on params
+          // params order: [source_id?, category?, search?, limit, offset]
+          let paramIndex = 0;
+          
+          // source_id filter
+          if (sql.includes('source_id =')) {
+            const sourceId = params[paramIndex++];
+            if (sourceId) {
+              results = results.filter(r => r.source_id === sourceId);
+            }
+          }
+          
+          // category filter
+          if (sql.includes('s.category =')) {
+            const category = params[paramIndex++];
+            if (category) {
+              results = results.filter(r => r.category === category);
+            }
+          }
+          
+          // title search filter
+          if (sql.includes('title LIKE')) {
+            const search = params[paramIndex++];
+            if (search) {
+              const searchTerm = search.replace(/%/g, '');
+              results = results.filter(r => r.title.includes(searchTerm));
+            }
+          }
+
+          console.log(`[DEBUG] After filtering: ${results.length} results`);
 
           // Apply LIMIT and OFFSET - they are the last two params
-          if (sql.includes('LIMIT') && params.length >= 2) {
+          if (sql.includes('LIMIT')) {
             const limit = Number(params[params.length - 2]);
             const offset = Number(params[params.length - 1]);
             console.log(`[DEBUG] LIMIT/OFFSET: total=${results.length}, limit=${limit}, offset=${offset}`);
