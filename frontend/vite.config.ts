@@ -15,4 +15,8 @@ export default defineConfig({
   build: {
     outDir: 'dist',
   },
+<<<<<<< HEAD
 });
+=======
+});
+>>>>>>> b3b2b8ce71669aa78e478944f8439346c72c5bd9

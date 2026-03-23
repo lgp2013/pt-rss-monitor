@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 <script setup lang="ts">
 import { ref, onMounted, watch } from 'vue';
 
@@ -83,10 +84,22 @@ watch(theme, () => {
         <line x1="8" y1="21" x2="16" y2="21"/>
         <line x1="12" y1="17" x2="12" y2="21"/>
       </svg>
+=======
+<template>
+  <div class="theme-toggle">
+    <button 
+      class="btn btn-secondary" 
+      @click="toggleTheme"
+      title="切换主题"
+    >
+      <span v-if="isDark">🌙</span>
+      <span v-else>☀️</span>
+>>>>>>> b3b2b8ce71669aa78e478944f8439346c72c5bd9
     </button>
   </div>
 </template>
 
+<<<<<<< HEAD
 <style scoped>
 .theme-toggle {
   display: flex;
@@ -119,3 +132,39 @@ watch(theme, () => {
   box-shadow: var(--shadow-sm);
 }
 </style>
+=======
+<script setup lang="ts">
+import { ref, onMounted } from 'vue'
+
+const isDark = ref(false)
+
+const toggleTheme = () => {
+  isDark.value = !isDark.value
+  if (isDark.value) {
+    document.documentElement.classList.add('dark')
+    localStorage.setItem('theme', 'dark')
+  } else {
+    document.documentElement.classList.remove('dark')
+    localStorage.setItem('theme', 'light')
+  }
+}
+
+onMounted(() => {
+  const savedTheme = localStorage.getItem('theme')
+  if (savedTheme) {
+    isDark.value = savedTheme === 'dark'
+  } else {
+    isDark.value = window.matchMedia('(prefers-color-scheme: dark)').matches
+  }
+  if (isDark.value) {
+    document.documentElement.classList.add('dark')
+  }
+})
+</script>
+
+<style scoped>
+.theme-toggle {
+  display: inline-block;
+}
+</style>
+>>>>>>> b3b2b8ce71669aa78e478944f8439346c72c5bd9

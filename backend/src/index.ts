@@ -17,7 +17,11 @@ const app = new Hono();
 app.use('*', cors());
 
 // Serve static frontend files in production
+<<<<<<< HEAD
 const frontendDist = process.env.FRONTEND_DIST || '../frontend-dist';
+=======
+const frontendDist = process.env.FRONTEND_DIST || '../frontend/dist';
+>>>>>>> b3b2b8ce71669aa78e478944f8439346c72c5bd9
 const frontendDistPath = resolve(frontendDist);
 
 if (existsSync(frontendDistPath)) {
@@ -53,9 +57,16 @@ function initCron() {
   // Get global fetch interval from settings
   const row = db.prepare("SELECT value FROM settings WHERE key = 'global_fetch_interval'").get() as { value: string } | undefined;
   const intervalMinutes = row ? parseInt(row.value, 10) : 30;
+<<<<<<< HEAD
 
   // Schedule fetch every N minutes
   const cronExpression = `*/${intervalMinutes} * * * *`;
+=======
+  const validInterval = isNaN(intervalMinutes) ? 30 : intervalMinutes;
+
+  // Schedule fetch every N minutes
+  const cronExpression = `*/${validInterval} * * * *`;
+>>>>>>> b3b2b8ce71669aa78e478944f8439346c72c5bd9
 
   cron.schedule(cronExpression, async () => {
     console.log(`[Cron] Starting scheduled fetch at ${new Date().toISOString()}`);
@@ -72,7 +83,11 @@ function initCron() {
     }
   });
 
+<<<<<<< HEAD
   console.log(`[Cron] Scheduled fetch every ${intervalMinutes} minutes`);
+=======
+  console.log(`[Cron] Scheduled fetch every ${validInterval} minutes`);
+>>>>>>> b3b2b8ce71669aa78e478944f8439346c72c5bd9
 }
 
 // Start server

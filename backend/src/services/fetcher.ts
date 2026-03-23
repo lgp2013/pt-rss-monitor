@@ -81,7 +81,13 @@ function extractInfo(item: Record<string, any>): Partial<Resource> {
 // Fetch RSS for a single source
 export async function fetchSource(source: Source): Promise<number> {
   try {
+<<<<<<< HEAD
     const feed = await parser.parseURL(source.url);
+=======
+    console.log(`Starting to fetch source: ${source.name} (${source.url})`);
+    const feed = await parser.parseURL(source.url);
+    console.log(`Fetched ${feed.items.length} items from ${source.name}`);
+>>>>>>> b3b2b8ce71669aa78e478944f8439346c72c5bd9
     let newCount = 0;
 
     const insertStmt = db.prepare(`
@@ -121,9 +127,16 @@ export async function fetchSource(source: Source): Promise<number> {
 
     insertMany(items);
 
+<<<<<<< HEAD
     // Update last fetch time
     db.prepare('UPDATE sources SET created_at = created_at WHERE id = ?').run(source.id);
 
+=======
+    // Update last fetch time (simulated, since in-memory DB doesn't have last_fetch field)
+    console.log(`Updated last fetch time for source ${source.name}`);
+
+    console.log(`Finished fetching source ${source.name}, added ${newCount} new resources`);
+>>>>>>> b3b2b8ce71669aa78e478944f8439346c72c5bd9
     return newCount;
   } catch (error) {
     console.error(`Failed to fetch source ${source.name}:`, error);
