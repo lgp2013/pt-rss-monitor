@@ -95,61 +95,66 @@ function parseDownloads(text: string): number {
 function extractInfo(item: Record<string, any>): Partial<Resource> {
   const title = item.title || '';
   const text = `${title} ${item.description || ''} ${item.content || ''}`;
+  const descText = item.description || '';
   
   // Extract clean title and free tag
   const { title: cleanTitle, freeTag } = extractCleanTitle(title);
   
-  // Extract subtitle from title - the part after the main title with resolution/format info
-  // Example: "Movie.Name.2026.2160p.WEB-DL.H265.10bit.DDP5.1" -> "2160p WEB-DL H265 10bit DDP5.1"
-  let subtitle = null;
+  // Extract subtitle from title - format specs after the main title
+  // Example: "BLUE EYE SAMURAI S01 2023 Complete 1080p Netflix WEB-DL AVC DDP 5.1 Atmos-DBTV"
+  // -> "1080p Netflix WEB-DL AVC DDP 5.1 Atmos"
+  let subtitle: string | null = null;
   
-  // Pattern 1: look for resolution followed by format specs with dot separator
-  // e.g. "Name.2026.2160p.WEB-DL.H265" -> "2160p WEB-DL H265"
-  const subtitleMatch = title.match(/\.((?:2160p|1080p|720p|480p)(?:\.[A-Z0-9]+)+)/i);
-  if (subtitleMatch) {
+  // Pattern: resolution + source + format specs
+  const subtitleMatch = title.match(/(?:^|[.\s])(((?:2160p|1080p|720p|480p)\s+(?:Netflix|Amazon|AMZN|Apple|HBO|Disney|DP|WEB-DL|WEB|Hulu|BLURAY|BRRip|DVDRip|HDRip)(?:\s+[A-Z0-9.]+){1,5})/i);
+  if (subtitleMatch && subtitleMatch[1]) {
     subtitle = subtitleMatch[1].replace(/\./g, ' ').trim();
-  } else {
-    // Pattern 2: space before resolution, then extract format specs
-    // e.g. "Name S01 2025 2160p WEB-DL DDP2.0 H265" -> "2160p WEB-DL DDP2.0 H265"
-    const spaceMatch = title.match(/(?:^|\s)((?:2160p|1080p|720p|480p)\s+(?:WEB-DL|BLURAY|BRRip|DVDRip|HDRip)(?:\s+[A-Z0-9.]+)*)/i);
-    if (spaceMatch && spaceMatch[1]) {
-      subtitle = spaceMatch[1].replace(/\./g, ' ').trim();
-    }
   }
   
-  // Try to extract poster URL from enclosure or media content or description
+  // Try to extract poster URL from description (most reliable for PT sites)
   let posterUrl: string | null = null;
   
-  // Check description field for img src (PT sites often put images here)
-  const descText = `${item.description || ''} ${item.content || ''}`;
+  // Check description field for ptgen_poster (usually the main poster)
   if (descText) {
-    const imgMatch = descText.match(/src=["']([^"']+\.(?:jpg|jpeg|png|gif|webp)[^"']*)["']/i);
-    if (imgMatch && imgMatch[1] && !imgMatch[1].includes('width') && imgMatch[1].length > 10) {
-      posterUrl = imgMatch[1];
+    // Look for ptgen_poster first (most common poster format)
+    const ptgenMatch = descText.match(/src=["']([^"']*ptgen_poster[^"']*)["']/i);
+    if (ptgenMatch && ptgenMatch[1]) {
+      posterUrl = ptgenMatch[1];
+    } else {
+      // Fallback: first image in description
+      const imgMatch = descText.match(/src=["']([^"']+\.(?:jpg|jpeg|png|gif|webp)[^"']*)["']/i);
+      if (imgMatch && imgMatch[1] && imgMatch[1].length > 10) {
+        posterUrl = imgMatch[1];
+      }
     }
   }
   
-  // Check enclosure - PT sites often use enclosure for images
+  // Check enclosure (sometimes contains image)
   if (!posterUrl && item.enclosure?.url) {
     const encUrl = String(item.enclosure.url);
-    if (!encUrl.includes('width') && !encUrl.includes('height') && encUrl.length > 10) {
+    if (!encUrl.includes('width') && encUrl.length > 10 && !encUrl.includes('bittorrent')) {
       posterUrl = encUrl;
-    }
-  }
-  
-  // Check media:content
-  if (!posterUrl && item['media:content']?.$.url) {
-    const mediaUrl = String(item['media:content'].$.url);
-    if (!mediaUrl.includes('width') && mediaUrl.length > 10) {
-      posterUrl = mediaUrl;
     }
   }
   
   // Check media:thumbnail
   if (!posterUrl && item['media:thumbnail']?.$.url) {
     const thumbUrl = String(item['media:thumbnail'].$.url);
-    if (!thumbUrl.includes('width') && thumbUrl.length > 10) {
+    if (thumbUrl && thumbUrl.length > 10) {
       posterUrl = thumbUrl;
+    }
+  }
+  
+  // Extract category from RSS item's <category> tag
+  let itemCategory: string | null = null;
+  if (item.category) {
+    // RSS category can be string or object with $
+    if (typeof item.category === 'string') {
+      itemCategory = item.category;
+    } else if (item.category['#'] || item.category.$) {
+      itemCategory = item.category['#'] || item.category.$;
+    } else if (typeof item.category === 'object') {
+      itemCategory = String(item.category);
     }
   }
   
@@ -161,6 +166,7 @@ function extractInfo(item: Record<string, any>): Partial<Resource> {
     downloads: parseDownloads(text),
     subtitle,
     poster_url: posterUrl,
+    category: itemCategory, // Override source category with item's category if present
   };
 }
 
@@ -173,8 +179,8 @@ export async function fetchSource(source: Source): Promise<number> {
     console.log(`[FETCHER] Fetching source: ${source.name}, items: ${feed.items?.length || 0}`);
 
     const insertStmt = db.prepare(`
-      INSERT INTO resources (source_id, title, link, guid, pub_date, seeders, leechers, downloads, free_tag, size, subtitle, poster_url)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO resources (source_id, title, link, guid, pub_date, seeders, leechers, downloads, free_tag, size, subtitle, poster_url, category)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
     const checkStmt = db.prepare(`
@@ -200,22 +206,24 @@ export async function fetchSource(source: Source): Promise<number> {
             item.free_tag || null,
             item.size || null,
             item.subtitle || null,
-            item.poster_url || null
+            item.poster_url || null,
+            item.category || source.category // Use item category if present, else source category
           );
           newCount++;
           console.log(`[FETCHER] Inserted: ${item.title?.substring(0, 30)}...`);
         } else {
           // Resource exists, check if we need to update subtitle or poster_url
           const existing = db.prepare('SELECT * FROM resources WHERE id = ?').get(existingId.id);
-          if (existing && (item.subtitle || item.poster_url)) {
+          if (existing && (item.subtitle || item.poster_url || item.category)) {
             // Update only if we have new values
             const updateStmt = db.prepare(`
               UPDATE resources 
               SET subtitle = COALESCE(?, subtitle),
-                  poster_url = COALESCE(?, poster_url)
+                  poster_url = COALESCE(?, poster_url),
+                  category = COALESCE(?, category)
               WHERE id = ?
             `);
-            updateStmt.run(item.subtitle, item.poster_url, existingId.id);
+            updateStmt.run(item.subtitle, item.poster_url, item.category, existingId.id);
             console.log(`[FETCHER] Updated fields for: ${item.title?.substring(0, 30)}...`);
           } else {
             console.log(`[FETCHER] Skipped duplicate: ${item.title?.substring(0, 30)}...`);
