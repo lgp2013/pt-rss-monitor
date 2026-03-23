@@ -1,122 +1,131 @@
-<script setup lang="ts">
-import { computed } from 'vue';
-
-const props = defineProps<{
-  resource: {
-    id: number;
-    title: string;
-    link: string;
-    source_name: string;
-    category: string;
-    size: string | null;
-    seeders: number;
-    leechers: number;
-    downloads: number;
-    free_tag: string | null;
-    created_at: string;
-    pub_date: string | null;
-  };
-}>();
-
-const emit = defineEmits<{
-  delete: [id: number];
-}>();
-
-const formatDate = (dateStr: string | null) => {
-  if (!dateStr) return '-';
-  const date = new Date(dateStr);
-  return date.toLocaleString('zh-CN', {
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-  });
-};
-
-const openLink = () => {
-  window.open(props.resource.link, '_blank');
-};
-</script>
-
 <template>
   <tr class="resource-row">
-    <td class="cell-title">
-      <a :href="resource.link" target="_blank" class="title-link" @click.prevent="openLink">
-        {{ resource.title }}
-      </a>
-      <div v-if="resource.free_tag" class="free-tag">
-        <span class="badge" :class="resource.free_tag === 'FREE' ? 'badge-free' : 'badge-discount'">
-          {{ resource.free_tag }}
-        </span>
+    <td>
+      <div class="resource-title">
+        <a :href="resource.link" target="_blank" rel="noopener noreferrer">{{ resource.title }}</a>
+        <div class="resource-meta">
+          <span class="resource-source">{{ resource.source_name }}</span>
+          <span class="resource-category">{{ resource.category }}</span>
+        </div>
       </div>
     </td>
-    <td>{{ resource.source_name }}</td>
-    <td><span class="tag">{{ resource.category }}</span></td>
-    <td>{{ resource.size || '-' }}</td>
-    <td class="cell-seeders">
-      <span class="seeders">{{ resource.seeders }}</span>
-      <span class="leechers">/ {{ resource.leechers }}</span>
+    <td>
+      <span v-if="resource.free_tag" class="badge" :class="{
+        'badge-success': resource.free_tag === 'FREE',
+        'badge-warning': resource.free_tag.includes('%')
+      }">
+        {{ resource.free_tag }}
+      </span>
     </td>
+    <td>{{ resource.size }}</td>
+    <td>{{ resource.seeders }}</td>
+    <td>{{ resource.leechers }}</td>
     <td>{{ resource.downloads }}</td>
-    <td class="cell-time">{{ formatDate(resource.pub_date || resource.created_at) }}</td>
-    <td class="cell-actions">
-      <button class="btn btn-sm" @click="openLink">打开</button>
-      <button class="btn btn-sm btn-danger" @click="emit('delete', resource.id)">删除</button>
+    <td>{{ formatDate(resource.pub_date || resource.created_at) }}</td>
+    <td>
+      <button class="btn btn-danger btn-sm" @click="deleteResource">删除</button>
     </td>
   </tr>
 </template>
 
+<script setup lang="ts">
+import { formatDate } from '../api'
+
+interface Resource {
+  id: number
+  source_id: number
+  title: string
+  link: string
+  guid: string | null
+  pub_date: string | null
+  seeders: number
+  leechers: number
+  downloads: number
+  free_tag: string | null
+  size: string | null
+  created_at: string
+  source_name: string
+  category: string
+}
+
+const props = defineProps<{
+  resource: Resource
+}>()
+
+const emit = defineEmits<{
+  (e: 'delete', id: number): void
+}>()
+
+const deleteResource = () => {
+  if (confirm('确定要删除这个资源吗？')) {
+    emit('delete', props.resource.id)
+  }
+}
+</script>
+
 <style scoped>
 .resource-row:hover {
-  background-color: var(--color-bg-secondary);
+  background-color: rgba(0, 0, 0, 0.05) !important;
 }
 
-.cell-title {
-  max-width: 400px;
+.resource-title {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
 }
 
-.title-link {
-  color: var(--color-text-primary);
+.resource-title a {
+  color: var(--text-primary);
   text-decoration: none;
-  word-break: break-all;
+  font-weight: 500;
+  transition: color 0.2s;
 }
 
-.title-link:hover {
-  color: var(--color-accent);
+.resource-title a:hover {
+  color: var(--primary);
+  text-decoration: underline;
 }
 
-.free-tag {
-  margin-top: 4px;
+.resource-meta {
+  display: flex;
+  gap: 0.5rem;
+  font-size: 0.875rem;
+  color: var(--text-secondary);
 }
 
-.cell-seeders {
-  font-family: monospace;
+.resource-source {
+  background-color: var(--bg-secondary);
+  padding: 0.125rem 0.25rem;
+  border-radius: 0.25rem;
 }
 
-.seeders {
-  color: var(--color-success);
-  font-weight: 600;
+.resource-category {
+  background-color: var(--bg-secondary);
+  padding: 0.125rem 0.25rem;
+  border-radius: 0.25rem;
 }
 
-.leechers {
-  color: var(--color-text-muted);
+.btn-sm {
+  padding: 0.25rem 0.5rem;
+  font-size: 0.875rem;
 }
 
-.cell-time {
-  font-size: 12px;
-  color: var(--color-text-secondary);
-  white-space: nowrap;
-}
+@media (max-width: 768px) {
+  .resource-row {
+    font-size: 0.875rem;
+  }
 
-.cell-actions {
-  white-space: nowrap;
-}
+  .resource-title a {
+    font-size: 0.875rem;
+  }
 
-.cell-actions .btn {
-  margin-right: 4px;
-}
+  .resource-meta {
+    font-size: 0.75rem;
+  }
 
-.cell-actions .btn:last-child {
-  margin-right: 0;
+  .btn-sm {
+    padding: 0.125rem 0.25rem;
+    font-size: 0.75rem;
+  }
 }
 </style>
