@@ -63,14 +63,12 @@ settings.get('/stats', (c) => {
   const totalSources = db.prepare('SELECT COUNT(*) as count FROM sources').get() as { count: number };
   const totalResources = db.prepare('SELECT COUNT(*) as count FROM resources').get() as { count: number };
 
-  // Resources by category
-  const sourcesByCategory = db.prepare(`
-    SELECT category, COUNT(*) as count FROM sources GROUP BY category
-  `).all() as { category: string; count: number }[];
-
+  // Resources by category - manually since InMemoryDB doesn't support GROUP BY
+  const sources = db.prepare('SELECT id, category FROM sources').all() as { id: number; category: string }[];
   const categoryMap: Record<string, number> = {};
-  for (const row of sourcesByCategory) {
-    categoryMap[row.category] = row.count;
+  for (const source of sources) {
+    const cat = source.category || '未分类';
+    categoryMap[cat] = (categoryMap[cat] || 0) + 1;
   }
 
   // Resources added today

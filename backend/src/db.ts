@@ -344,6 +344,22 @@ class InMemoryDB {
           if (sql.includes('FROM sources')) {
             return { count: this.sources.length };
           } else if (sql.includes('FROM resources')) {
+            // Check if there's a WHERE clause
+            if (sql.includes('WHERE')) {
+              // For today count, we need to filter
+              if (sql.includes('created_at >=')) {
+                const dateStr = params[0];
+                if (dateStr) {
+                  const date = new Date(dateStr);
+                  const filtered = this.resources.filter(r => {
+                    const created = new Date(r.created_at);
+                    return created >= date;
+                  });
+                  return { count: filtered.length };
+                }
+              }
+              return { count: this.resources.length };
+            }
             return { count: this.resources.length };
           }
           return { count: 0 };
