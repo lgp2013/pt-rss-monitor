@@ -90,4 +90,11 @@ settings.get('/stats', (c) => {
   });
 });
 
+// GET /api/settings/categories - Get all unique categories
+settings.get('/categories', (c) => {
+  const sources = db.prepare('SELECT category FROM sources').all() as { category: string }[];
+  const categories = [...new Set(sources.map(s => s.category).filter(Boolean))];
+  return c.json({ categories });
+});
+
 export default settings;

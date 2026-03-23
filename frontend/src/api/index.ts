@@ -101,4 +101,7 @@ export const settingsApi = {
       sources_by_category: Record<string, number>;
       resources_today: number;
     }>('/settings/stats'),
+
+  getCategories: () =>
+    fetchJson<{ categories: string[] }>('/settings/categories'),
 };

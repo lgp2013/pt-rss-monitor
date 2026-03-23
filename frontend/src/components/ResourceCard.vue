@@ -51,6 +51,20 @@ const badgeClass = computed(() => {
   return 'badge-free';
 });
 
+// Extract resolution from title
+const resolution = computed(() => {
+  const match = props.resource.title.match(/(2160p|1080p|720p|480p)/i);
+  return match ? match[1].toUpperCase() : null;
+});
+
+const resolutionClass = computed(() => {
+  const res = resolution.value;
+  if (res === '2160p') return 'res-4k';
+  if (res === '1080p') return 'res-fhd';
+  if (res === '720p') return 'res-hd';
+  return 'res-sd';
+});
+
 // Clean HTML tags from description
 const cleanDescription = computed(() => {
   if (!props.resource.description) return '';
@@ -95,6 +109,9 @@ const shortDescription = computed(() => {
           <h3 class="title" @click="openLink">{{ resource.title }}</h3>
           <span v-if="resource.free_tag" class="badge" :class="badgeClass">
             {{ resource.free_tag }}
+          </span>
+          <span v-if="resolution" class="badge resolution-badge" :class="resolutionClass">
+            {{ resolution }}
           </span>
         </div>
         <div v-if="resource.subtitle" class="subtitle">
@@ -252,6 +269,36 @@ const shortDescription = computed(() => {
 .badge-discount {
   background: var(--color-discount);
   color: white;
+}
+
+.resolution-badge {
+  background: var(--color-bg-tertiary);
+  color: var(--color-text-primary);
+  border: 1px solid var(--color-border);
+}
+
+.res-4k {
+  background: #8b5cf6;
+  color: white;
+  border: none;
+}
+
+.res-fhd {
+  background: #10b981;
+  color: white;
+  border: none;
+}
+
+.res-hd {
+  background: #3b82f6;
+  color: white;
+  border: none;
+}
+
+.res-sd {
+  background: #6b7280;
+  color: white;
+  border: none;
 }
 
 .meta {
