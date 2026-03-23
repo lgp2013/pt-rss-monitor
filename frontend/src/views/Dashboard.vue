@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted, watch } from 'vue';
 import { sourcesApi, resourcesApi } from '../api';
-import ResourceRow from '../components/ResourceRow.vue';
+import ResourceCard from '../components/ResourceCard.vue';
 
 const resources = ref<any[]>([]);
 const sources = ref<any[]>([]);
@@ -111,7 +111,7 @@ watch(
     <!-- Filters -->
     <div class="filters card">
       <div class="filter-row">
-        <div class="filter-item">
+        <div class="filter-item filter-search">
           <label class="form-label">搜索</label>
           <input
             v-model="filters.search"
@@ -162,6 +162,11 @@ watch(
       </div>
     </div>
 
+    <!-- Stats -->
+    <div class="stats-bar">
+      <span class="stats-item">共 {{ pagination.total }} 条资源</span>
+    </div>
+
     <!-- Loading -->
     <div v-if="loading" class="loading">
       <div class="spinner"></div>
@@ -173,30 +178,14 @@ watch(
       <p class="text-muted">尝试添加 RSS 源或调整筛选条件</p>
     </div>
 
-    <!-- Table -->
-    <div v-else class="table-container card">
-      <table class="table">
-        <thead>
-          <tr>
-            <th>标题</th>
-            <th>站点</th>
-            <th>分类</th>
-            <th>大小</th>
-            <th>做种</th>
-            <th>下载</th>
-            <th>时间</th>
-            <th>操作</th>
-          </tr>
-        </thead>
-        <tbody>
-          <ResourceRow
-            v-for="resource in resources"
-            :key="resource.id"
-            :resource="resource"
-            @delete="deleteResource"
-          />
-        </tbody>
-      </table>
+    <!-- Card List -->
+    <div v-else class="resource-list">
+      <ResourceCard
+        v-for="resource in resources"
+        :key="resource.id"
+        :resource="resource"
+        @delete="deleteResource"
+      />
     </div>
 
     <!-- Pagination -->
@@ -234,7 +223,7 @@ watch(
 }
 
 .filters {
-  margin-bottom: var(--spacing-lg);
+  margin-bottom: var(--spacing-md);
 }
 
 .filter-row {
@@ -245,7 +234,12 @@ watch(
 }
 
 .filter-item {
-  min-width: 150px;
+  min-width: 120px;
+}
+
+.filter-search {
+  flex: 1;
+  min-width: 200px;
 }
 
 .filter-item .form-label {
@@ -258,9 +252,20 @@ watch(
   margin-left: auto;
 }
 
+.stats-bar {
+  margin-bottom: var(--spacing-md);
+  padding: 8px 0;
+  color: var(--color-text-secondary);
+  font-size: 14px;
+}
+
 .text-muted {
   color: var(--color-text-muted);
   font-size: 14px;
+}
+
+.resource-list {
+  margin-bottom: var(--spacing-lg);
 }
 
 @media (max-width: 768px) {
@@ -270,6 +275,10 @@ watch(
   }
 
   .filter-item {
+    min-width: unset;
+  }
+
+  .filter-search {
     min-width: unset;
   }
 
