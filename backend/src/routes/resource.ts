@@ -37,13 +37,23 @@ resource.get('/', (c) => {
     params.push(`%${search}%`);
   }
 
-  // Note: resolution and free_tag are filtered in db.ts since they're parsed from title
+  // Add resolution filter to WHERE clause
+  if (resolution) {
+    whereClause += ' AND r.title LIKE ?';
+    params.push(`%${resolution}%`);
+  }
+  
+  // Add free_tag filter to WHERE clause
+  if (freeTag) {
+    whereClause += ' AND r.free_tag = ?';
+    params.push(freeTag);
+  }
   
   const validSortColumns = ['created_at', 'pub_date', 'title', 'seeders', 'size'];
   const sortColumn = validSortColumns.includes(sortBy) ? sortBy : 'created_at';
   const order = sortOrder.toLowerCase() === 'asc' ? 'ASC' : 'DESC';
 
-  // Get total count (for accurate pagination with filters)
+  // Get total count
   const countQuery = `
     SELECT COUNT(*) as total
     FROM resources r
@@ -66,19 +76,8 @@ resource.get('/', (c) => {
   const allParams = [...params, limit, offset];
   const resources = db.prepare(query).all(...allParams) as (Resource & { source_name: string; category: string })[];
 
-  // Apply resolution filter in memory
-  let filtered = resources;
-  if (resolution) {
-    filtered = filtered.filter(r => r.title.toLowerCase().includes(resolution.toLowerCase()));
-  }
-  
-  // Apply free_tag filter in memory  
-  if (freeTag) {
-    filtered = filtered.filter(r => r.free_tag === freeTag);
-  }
-
   return c.json({
-    data: filtered,
+    data: resources,
     pagination: {
       page,
       limit,
