@@ -12,6 +12,8 @@ const filters = ref({
   source_id: '',
   category: '',
   search: '',
+  resolution: '',
+  free_tag: '',
   sort_by: 'created_at',
   sort_order: 'desc',
 });
@@ -42,6 +44,8 @@ async function loadResources() {
     if (filters.value.source_id) params.source_id = filters.value.source_id;
     if (filters.value.category) params.category = filters.value.category;
     if (filters.value.search) params.search = filters.value.search;
+    if (filters.value.resolution) params.resolution = filters.value.resolution;
+    if (filters.value.free_tag) params.free_tag = filters.value.free_tag;
 
     const result = await resourcesApi.list(params);
     resources.value = result.data;
@@ -77,6 +81,8 @@ function clearFilters() {
     source_id: '',
     category: '',
     search: '',
+    resolution: '',
+    free_tag: '',
     sort_by: 'created_at',
     sort_order: 'desc',
   };
@@ -157,6 +163,25 @@ watch(
             <option value="pub_date">发布时间</option>
             <option value="title">标题</option>
             <option value="seeders">做种</option>
+          </select>
+        </div>
+        <div class="filter-item">
+          <label class="form-label">清晰度</label>
+          <select v-model="filters.resolution" class="select">
+            <option value="">全部</option>
+            <option value="2160p">2160p</option>
+            <option value="1080p">1080p</option>
+            <option value="720p">720p</option>
+            <option value="480p">480p</option>
+          </select>
+        </div>
+        <div class="filter-item">
+          <label class="form-label">折扣</label>
+          <select v-model="filters.free_tag" class="select">
+            <option value="">全部</option>
+            <option value="FREE">免费</option>
+            <option value="50%">50%</option>
+            <option value="30%">30%</option>
           </select>
         </div>
         <div class="filter-item">

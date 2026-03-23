@@ -12,6 +12,8 @@ resource.get('/', (c) => {
   const sourceId = c.req.query('source_id');
   const category = c.req.query('category');
   const search = c.req.query('search');
+  const resolution = c.req.query('resolution');
+  const freeTag = c.req.query('free_tag');
   const sortBy = c.req.query('sort_by') || 'created_at';
   const sortOrder = c.req.query('sort_order') || 'desc';
 
@@ -35,11 +37,13 @@ resource.get('/', (c) => {
     params.push(`%${search}%`);
   }
 
+  // Note: resolution and free_tag are filtered in db.ts since they're parsed from title
+  
   const validSortColumns = ['created_at', 'pub_date', 'title', 'seeders', 'size'];
   const sortColumn = validSortColumns.includes(sortBy) ? sortBy : 'created_at';
   const order = sortOrder.toLowerCase() === 'asc' ? 'ASC' : 'DESC';
 
-  // Get total count
+  // Get total count (for accurate pagination with filters)
   const countQuery = `
     SELECT COUNT(*) as total
     FROM resources r
@@ -47,10 +51,7 @@ resource.get('/', (c) => {
     WHERE ${whereClause}
   `;
   
-  console.log(`[ROUTE] COUNT query: ${countQuery}`);
-  console.log(`[ROUTE] COUNT params: ${JSON.stringify(params)}`);
   const { total } = db.prepare(countQuery).get(...params) as { total: number };
-  console.log(`[ROUTE] COUNT result: total=${total}`);
 
   // Get resources
   const query = `
@@ -63,13 +64,21 @@ resource.get('/', (c) => {
   `;
 
   const allParams = [...params, limit, offset];
-  console.log(`[ROUTE] SELECT query: ${query}`);
-  console.log(`[ROUTE] SELECT params: ${JSON.stringify(allParams)}`);
   const resources = db.prepare(query).all(...allParams) as (Resource & { source_name: string; category: string })[];
-  console.log(`[ROUTE] SELECT result: ${resources.length} items`);
+
+  // Apply resolution filter in memory
+  let filtered = resources;
+  if (resolution) {
+    filtered = filtered.filter(r => r.title.toLowerCase().includes(resolution.toLowerCase()));
+  }
+  
+  // Apply free_tag filter in memory  
+  if (freeTag) {
+    filtered = filtered.filter(r => r.free_tag === freeTag);
+  }
 
   return c.json({
-    data: resources,
+    data: filtered,
     pagination: {
       page,
       limit,

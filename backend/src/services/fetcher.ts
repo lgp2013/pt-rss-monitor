@@ -64,14 +64,23 @@ function parseFreeTag(text: string): string | null {
 
 // Extract clean title without free tag brackets
 function extractCleanTitle(title: string): { title: string; freeTag: string | null } {
-  // Remove [免费] [50%] etc from title
-  const freeTagMatch = title.match(/\[(免费|FREE|\d+%|0%|100%)\]/i);
+  // Extract free tag from [FREE], [50%], [免费] etc. brackets
   let freeTag: string | null = null;
   let cleanTitle = title;
   
-  if (freeTagMatch) {
-    freeTag = parseFreeTag(title) || freeTagMatch[1];
-    cleanTitle = title.replace(/\s*\[\s*(免费|FREE|\d+%|0%|100%)\s*\]\s*/gi, '').trim();
+  // Pattern to match [FREE], [50%], [免费], [0%], [100%] etc.
+  const bracketMatch = title.match(/\[(免费|FREE|50%|\d+%|[01]00%)\]/i);
+  if (bracketMatch) {
+    const tag = bracketMatch[1].toUpperCase();
+    if (tag === '免费' || tag === 'FREE' || tag === '0%' || tag === '100%') {
+      freeTag = 'FREE';
+    } else if (tag.endsWith('%')) {
+      freeTag = tag;
+    } else {
+      freeTag = tag;
+    }
+    // Remove the bracket tag from title
+    cleanTitle = title.replace(/\s*\[\s*(免费|FREE|50%|\d+%|[01]00%)\s*\]\s*/gi, '').trim();
   }
   
   return { title: cleanTitle, freeTag };
