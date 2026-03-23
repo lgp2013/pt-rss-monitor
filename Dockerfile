@@ -57,8 +57,10 @@ COPY --from=backend-builder /app/backend/dist ./dist
 # Copy frontend dist
 COPY --from=frontend-builder /app/frontend/dist ./frontend-dist
 
-# Create data directory
-RUN mkdir -p /app/data && chown -R node:node /app/data
+# Create data directory with proper permissions
+RUN mkdir -p /app/data && \
+    chown -R node:node /app/data && \
+    chmod 755 /app/data
 
 ENV NODE_ENV=production
 ENV PORT=3000

@@ -1,0 +1,26 @@
+version: '3.8'
+
+services:
+  pt-rss-monitor:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: pt-rss-monitor
+    ports:
+      - "3000:3000"
+    volumes:
+      - pt-rss-data:/app/data
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      - DB_PATH=/app/data/pt-rss-monitor.json
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+volumes:
+  pt-rss-data:
