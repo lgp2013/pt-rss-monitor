@@ -119,13 +119,31 @@ function extractInfo(item: Record<string, any>): Partial<Resource> {
   }
   
   // Try to extract poster URL from enclosure or media content
-  let posterUrl = null;
-  if (item.enclosure?.url && /\.(jpg|jpeg|png|gif|webp)$/i.test(item.enclosure.url)) {
-    posterUrl = item.enclosure.url;
-  } else if (item['media:content']?.$.url && /\.(jpg|jpeg|png|gif|webp)$/i.test(item['media:content'].$.url)) {
-    posterUrl = item['media:content'].$.url;
-  } else if (item['media:thumbnail']?.$.url) {
-    posterUrl = item['media:thumbnail'].$.url;
+  let posterUrl: string | null = null;
+  
+  // Check enclosure - PT sites often use enclosure for images
+  if (item.enclosure?.url) {
+    const encUrl = String(item.enclosure.url);
+    // Skip if URL contains "width" or is clearly not an image
+    if (!encUrl.includes('width') && !encUrl.includes('height') && encUrl.length > 10) {
+      posterUrl = encUrl;
+    }
+  }
+  
+  // Check media:content
+  if (!posterUrl && item['media:content']?.$.url) {
+    const mediaUrl = String(item['media:content'].$.url);
+    if (!mediaUrl.includes('width') && mediaUrl.length > 10) {
+      posterUrl = mediaUrl;
+    }
+  }
+  
+  // Check media:thumbnail
+  if (!posterUrl && item['media:thumbnail']?.$.url) {
+    const thumbUrl = String(item['media:thumbnail'].$.url);
+    if (!thumbUrl.includes('width') && thumbUrl.length > 10) {
+      posterUrl = thumbUrl;
+    }
   }
   
   return {
