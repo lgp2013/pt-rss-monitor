@@ -232,15 +232,15 @@ class InMemoryDB {
             }
           }
           
-          // Filter by title search if present
+          // Filter by title search if present (case-insensitive)
           if (sql.includes('title LIKE ?')) {
             // Find search param index
             let idx = 0;
             if (sql.includes('r.source_id = ?')) idx++;
             if (sql.includes('s.category = ?')) idx++;
             if (params[idx] !== undefined) {
-              const search = String(params[idx]).replace(/%/g, '');
-              results = results.filter(r => r.title.includes(search));
+              const search = String(params[idx]).replace(/%/g, '').toLowerCase();
+              results = results.filter(r => r.title.toLowerCase().includes(search));
               console.log(`[DEBUG JOIN] after search filter (${search}): ${results.length}`);
             }
           }

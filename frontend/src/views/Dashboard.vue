@@ -102,6 +102,17 @@ watch(
   () => filters.value.source_id,
   () => applyFilters()
 );
+
+// Auto-reset when search is cleared
+watch(
+  () => filters.value.search,
+  (newVal, oldVal) => {
+    if (oldVal && !newVal) {
+      // Search was cleared, apply filters immediately
+      applyFilters();
+    }
+  }
+);
 </script>
 
 <template>

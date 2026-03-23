@@ -99,13 +99,23 @@ function extractInfo(item: Record<string, any>): Partial<Resource> {
   // Extract clean title and free tag
   const { title: cleanTitle, freeTag } = extractCleanTitle(title);
   
-  // Extract subtitle from description (usually after the main title)
+  // Extract subtitle from title - the part after the main title with resolution/format info
+  // Example: "Movie.Name.2026.2160p.WEB-DL.H265.10bit.DDP5.1" -> "2160p WEB-DL H265 10bit DDP5.1"
   let subtitle = null;
-  const descText = `${item.description || ''} ${item.content || ''}`;
-  // Try to extract subtitle - often after | or - followed by description text
-  const subtitleMatch = descText.match(/[-|]\s*(.+?)(?:\.|\s*\[|$)/i);
-  if (subtitleMatch && subtitleMatch[1].length > 5 && subtitleMatch[1].length < 200) {
-    subtitle = subtitleMatch[1].trim();
+  
+  // Pattern: after year or resolution, extract format specs
+  const subtitleMatch = title.match(/\.((?:2160p|1080p|720p|480p)(?:\.[A-Z0-9]+)+)/i);
+  if (subtitleMatch) {
+    subtitle = subtitleMatch[1].replace(/\./g, ' ').trim();
+  } else {
+    // Alternative: extract everything after the year pattern
+    const yearMatch = title.match(/\.(\d{4})\./);
+    if (yearMatch) {
+      const afterYear = title.split(yearMatch[0])[1];
+      if (afterYear && afterYear.length > 5 && afterYear.length < 150) {
+        subtitle = afterYear.replace(/\./g, ' ').trim();
+      }
+    }
   }
   
   // Try to extract poster URL from enclosure or media content

@@ -40,23 +40,6 @@ const openLink = () => {
   window.open(props.resource.link, '_blank');
 };
 
-// Extract year from title for TMDB search
-const imdbUrl = computed(() => {
-  const match = props.resource.title.match(/IMDb[:\s]*([\d]+)/i);
-  if (match) {
-    return `https://www.imdb.com/title/tt${match[1]}`;
-  }
-  return `https://www.imdb.com/find?q=${encodeURIComponent(props.resource.title)}`;
-});
-
-const doubanUrl = computed(() => {
-  const match = props.resource.title.match(/豆瓣[:\s]*([\d]+)/i);
-  if (match) {
-    return `https://movie.douban.com/subject/${match[1]}`;
-  }
-  return `https://www.douban.com/search?search_text=${encodeURIComponent(props.resource.title)}`;
-});
-
 // Get badge class based on free tag
 const badgeClass = computed(() => {
   const tag = props.resource.free_tag?.toUpperCase();
@@ -120,8 +103,6 @@ const badgeClass = computed(() => {
         </div>
       </div>
       <div class="actions">
-        <a :href="doubanUrl" target="_blank" class="link-btn">豆瓣</a>
-        <a :href="imdbUrl" target="_blank" class="link-btn">IMDb</a>
         <button class="btn btn-primary" @click="openLink">打开</button>
         <button class="btn" @click="emit('delete', resource.id)">删除</button>
       </div>
