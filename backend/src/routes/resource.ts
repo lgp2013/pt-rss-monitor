@@ -46,7 +46,11 @@ resource.get('/', (c) => {
     JOIN sources s ON r.source_id = s.id
     WHERE ${whereClause}
   `;
+  
+  console.log(`[ROUTE] COUNT query: ${countQuery}`);
+  console.log(`[ROUTE] COUNT params: ${JSON.stringify(params)}`);
   const { total } = db.prepare(countQuery).get(...params) as { total: number };
+  console.log(`[ROUTE] COUNT result: total=${total}`);
 
   // Get resources
   const query = `
@@ -58,7 +62,11 @@ resource.get('/', (c) => {
     LIMIT ? OFFSET ?
   `;
 
-  const resources = db.prepare(query).all(...params, limit, offset) as (Resource & { source_name: string; category: string })[];
+  const allParams = [...params, limit, offset];
+  console.log(`[ROUTE] SELECT query: ${query}`);
+  console.log(`[ROUTE] SELECT params: ${JSON.stringify(allParams)}`);
+  const resources = db.prepare(query).all(...allParams) as (Resource & { source_name: string; category: string })[];
+  console.log(`[ROUTE] SELECT result: ${resources.length} items`);
 
   return c.json({
     data: resources,
