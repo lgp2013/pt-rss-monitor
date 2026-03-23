@@ -1,0 +1,33 @@
+name: Docker Image CI
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+
+    # Build the Docker image with a dynamic tag
+    - name: Build the Docker image
+      run: docker build . --file Dockerfile --tag my-image-name:$(date +%s)
+
+    # Save Docker image as tar file
+    - name: Save Docker image as tar file
+      run: |
+        docker save my-image-name:$(date +%s) -o my-image-name.tar
+
+    # Upload the tar file as artifact
+    - name: Upload Docker image tar as artifact
+      uses: actions/upload-artifact@v2
+      with:
+        name: docker-image
+        path: my-image-name.tar
+
+    # Push the Docker image to Docker Hub (可选)
+    - name: Push Docker image to Docker Hub
+      run: docker push my-image-name:$(date +%s)
