@@ -188,12 +188,12 @@ class InMemoryDB {
         if (sql.includes('SELECT r.')) {
           console.log(`[DEBUG ALL] SQL with SELECT r. detected, checking JOIN condition...`);
           console.log(`[DEBUG ALL] SQL: ${sql.substring(0, 100)}`);
-          console.log(`[DEBUG ALL] includes 'FROM resources r JOIN sources s': ${sql.includes('FROM resources r JOIN sources s')}`);
+          console.log(`[DEBUG ALL] includes 'JOIN sources s': ${sql.includes('JOIN sources s')}`);
         }
         
         if (sql.includes('SELECT * FROM sources')) {
           return this.sources;
-        } else if (sql.includes('FROM resources r JOIN sources s')) {
+        } else if (sql.includes('JOIN sources s')) {
           // Handle JOIN query for resources with source info
           // params: [sourceId?, category?, search?, limit, offset]
           console.log(`[DEBUG JOIN] total resources=${this.resources.length}, params=${JSON.stringify(params)}`);
