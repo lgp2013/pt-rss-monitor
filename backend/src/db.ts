@@ -234,7 +234,7 @@ class InMemoryDB {
           // Apply sorting
           const sortMatch = sql.match(/ORDER BY r\.(\w+)\s+(ASC|DESC)/i);
           if (sortMatch) {
-            const col = sortMatch[1];
+            const col = sortMatch[1] as keyof typeof results[0];
             const asc = sortMatch[2].toLowerCase() === 'asc';
             results.sort((a, b) => {
               const aVal = a[col];
@@ -242,7 +242,7 @@ class InMemoryDB {
               if (aVal == null && bVal == null) return 0;
               if (aVal == null) return asc ? 1 : -1;
               if (bVal == null) return asc ? -1 : 1;
-              if (typeof aVal === 'string') {
+              if (typeof aVal === 'string' && typeof bVal === 'string') {
                 return asc ? aVal.localeCompare(bVal) : bVal.localeCompare(aVal);
               }
               return asc ? Number(aVal) - Number(bVal) : Number(bVal) - Number(aVal);
