@@ -26,8 +26,19 @@ function parseSize(text: string): string | null {
   return null;
 }
 
-// Parse free tag from text
+// Parse free tag from text - handles [免费] [50%] format
 function parseFreeTag(text: string): string | null {
+  // Check for [免费] or [FREE] format in brackets
+  const bracketMatch = text.match(/\[(免费|FREE|\d+%|0%|100%)\]/i);
+  if (bracketMatch) {
+    const tag = bracketMatch[1].toUpperCase();
+    if (tag === '免费' || tag === 'FREE' || tag === '0%' || tag === '100%') {
+      return 'FREE';
+    }
+    return tag;
+  }
+  
+  // Fallback to other patterns
   if (/free|免费|0%|100%/i.test(text)) {
     return 'FREE';
   }
@@ -36,6 +47,21 @@ function parseFreeTag(text: string): string | null {
     return `${discountMatch[1]}%`;
   }
   return null;
+}
+
+// Extract clean title without free tag brackets
+function extractCleanTitle(title: string): { title: string; freeTag: string | null } {
+  // Remove [免费] [50%] etc from title
+  const freeTagMatch = title.match(/\[(免费|FREE|\d+%|0%|100%)\]/i);
+  let freeTag: string | null = null;
+  let cleanTitle = title;
+  
+  if (freeTagMatch) {
+    freeTag = parseFreeTag(title) || freeTagMatch[1];
+    cleanTitle = title.replace(/\s*\[\s*(免费|FREE|\d+%|0%|100%)\s*\]\s*/gi, '').trim();
+  }
+  
+  return { title: cleanTitle, freeTag };
 }
 
 // Parse seeders from text
@@ -67,14 +93,39 @@ function parseDownloads(text: string): number {
 
 // Extract info from item
 function extractInfo(item: Record<string, any>): Partial<Resource> {
-  const text = `${item.title || ''} ${item.description || ''} ${item.content || ''}`;
+  const title = item.title || '';
+  const text = `${title} ${item.description || ''} ${item.content || ''}`;
+  
+  // Extract clean title and free tag
+  const { title: cleanTitle, freeTag } = extractCleanTitle(title);
+  
+  // Extract subtitle from description (usually after the main title)
+  let subtitle = null;
+  const descText = `${item.description || ''} ${item.content || ''}`;
+  // Try to extract subtitle - often after | or - followed by description text
+  const subtitleMatch = descText.match(/[-|]\s*(.+?)(?:\.|\s*\[|$)/i);
+  if (subtitleMatch && subtitleMatch[1].length > 5 && subtitleMatch[1].length < 200) {
+    subtitle = subtitleMatch[1].trim();
+  }
+  
+  // Try to extract poster URL from enclosure or media content
+  let posterUrl = null;
+  if (item.enclosure?.url && /\.(jpg|jpeg|png|gif|webp)$/i.test(item.enclosure.url)) {
+    posterUrl = item.enclosure.url;
+  } else if (item['media:content']?.$.url && /\.(jpg|jpeg|png|gif|webp)$/i.test(item['media:content'].$.url)) {
+    posterUrl = item['media:content'].$.url;
+  } else if (item['media:thumbnail']?.$.url) {
+    posterUrl = item['media:thumbnail'].$.url;
+  }
   
   return {
     size: parseSize(text),
-    free_tag: parseFreeTag(text),
+    free_tag: freeTag || parseFreeTag(text),
     seeders: parseSeeders(text),
     leechers: parseLeechers(text),
     downloads: parseDownloads(text),
+    subtitle,
+    poster_url: posterUrl,
   };
 }
 
@@ -87,8 +138,8 @@ export async function fetchSource(source: Source): Promise<number> {
     console.log(`[FETCHER] Fetching source: ${source.name}, items: ${feed.items?.length || 0}`);
 
     const insertStmt = db.prepare(`
-      INSERT INTO resources (source_id, title, link, guid, pub_date, seeders, leechers, downloads, free_tag, size)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO resources (source_id, title, link, guid, pub_date, seeders, leechers, downloads, free_tag, size, subtitle, poster_url)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
     const checkStmt = db.prepare(`
@@ -112,7 +163,9 @@ export async function fetchSource(source: Source): Promise<number> {
             item.leechers || 0,
             item.downloads || 0,
             item.free_tag || null,
-            item.size || null
+            item.size || null,
+            item.subtitle || null,
+            item.poster_url || null
           );
           newCount++;
           console.log(`[FETCHER] Inserted: ${item.title?.substring(0, 30)}...`);

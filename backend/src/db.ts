@@ -357,8 +357,8 @@ class InMemoryDB {
           const [id] = params;
           this.deleteSource(id);
         } else if (sql.includes('INSERT INTO resources')) {
-          const [source_id, title, link, guid, pub_date, seeders, leechers, downloads, free_tag, size] = params;
-          this.addResource({ source_id, title, link, guid, pub_date, seeders, leechers, downloads, free_tag, size });
+          const [source_id, title, link, guid, pub_date, seeders, leechers, downloads, free_tag, size, subtitle, poster_url] = params;
+          this.addResource({ source_id, title, link, guid, pub_date, seeders, leechers, downloads, free_tag, size, subtitle, poster_url });
         } else if (sql.includes('DELETE FROM resources')) {
           if (sql.includes('WHERE id =')) {
             const [id] = params;

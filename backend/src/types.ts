@@ -21,6 +21,8 @@ export interface Resource {
   free_tag: string | null;
   size: string | null;
   created_at: string;
+  subtitle?: string | null;
+  poster_url?: string | null;
 }
 
 export interface Setting {

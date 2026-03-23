@@ -15,6 +15,8 @@ const props = defineProps<{
     free_tag: string | null;
     created_at: string;
     pub_date: string | null;
+    subtitle?: string | null;
+    poster_url?: string | null;
   };
 }>();
 
@@ -38,37 +40,43 @@ const openLink = () => {
   window.open(props.resource.link, '_blank');
 };
 
-// Extract IMDb ID from title or generate search URL
+// Extract year from title for TMDB search
 const imdbUrl = computed(() => {
   const match = props.resource.title.match(/IMDb[:\s]*([\d]+)/i);
   if (match) {
     return `https://www.imdb.com/title/tt${match[1]}`;
   }
-  // Fallback to search
   return `https://www.imdb.com/find?q=${encodeURIComponent(props.resource.title)}`;
 });
 
-// Extract Douban ID or generate search URL
 const doubanUrl = computed(() => {
   const match = props.resource.title.match(/豆瓣[:\s]*([\d]+)/i);
   if (match) {
     return `https://movie.douban.com/subject/${match[1]}`;
   }
-  // Fallback to search
   return `https://www.douban.com/search?search_text=${encodeURIComponent(props.resource.title)}`;
 });
 
-// Extract year from title
-const yearMatch = computed(() => {
-  const match = props.resource.title.match(/\.(\d{4})\./);
-  return match ? match[1] : null;
+// Get badge class based on free tag
+const badgeClass = computed(() => {
+  const tag = props.resource.free_tag?.toUpperCase();
+  if (tag === 'FREE') return 'badge-free';
+  if (tag?.includes('%')) return 'badge-discount';
+  return 'badge-free';
 });
 </script>
 
 <template>
   <div class="resource-card">
     <div class="poster">
-      <div class="poster-placeholder">
+      <img 
+        v-if="resource.poster_url" 
+        :src="resource.poster_url" 
+        :alt="resource.title"
+        class="poster-img"
+        @error="($event.target as HTMLImageElement).style.display='none'"
+      />
+      <div v-else class="poster-placeholder">
         <svg viewBox="0 0 24 24" fill="currentColor">
           <path d="M18 4l2 4h-3l-2-4h-2l2 4h-3l-2-4H8l2 4H7L5 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V4h-4z"/>
         </svg>
@@ -78,9 +86,12 @@ const yearMatch = computed(() => {
       <div class="header">
         <div class="title-row">
           <h3 class="title" @click="openLink">{{ resource.title }}</h3>
-          <span v-if="resource.free_tag" class="badge" :class="resource.free_tag === 'FREE' ? 'badge-free' : 'badge-discount'">
+          <span v-if="resource.free_tag" class="badge" :class="badgeClass">
             {{ resource.free_tag }}
           </span>
+        </div>
+        <div v-if="resource.subtitle" class="subtitle">
+          {{ resource.subtitle }}
         </div>
         <div class="meta">
           <span class="site">{{ resource.source_name }}</span>
@@ -103,8 +114,14 @@ const yearMatch = computed(() => {
           <span class="stat-label">大小</span>
           <span class="stat-value">{{ resource.size }}</span>
         </div>
+        <div class="stat">
+          <span class="stat-label">互助</span>
+          <span class="stat-value">{{ resource.leechers }}</span>
+        </div>
       </div>
       <div class="actions">
+        <a :href="doubanUrl" target="_blank" class="link-btn">豆瓣</a>
+        <a :href="imdbUrl" target="_blank" class="link-btn">IMDb</a>
         <button class="btn btn-primary" @click="openLink">打开</button>
         <button class="btn" @click="emit('delete', resource.id)">删除</button>
       </div>
@@ -134,6 +151,12 @@ const yearMatch = computed(() => {
   border-radius: 6px;
   overflow: hidden;
   background: var(--color-bg-primary);
+}
+
+.poster-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
 }
 
 .poster-placeholder {
@@ -176,10 +199,18 @@ const yearMatch = computed(() => {
   margin: 0;
   cursor: pointer;
   word-break: break-all;
+  line-height: 1.3;
 }
 
 .title:hover {
   color: var(--color-accent);
+}
+
+.subtitle {
+  font-size: 13px;
+  color: var(--color-text-secondary);
+  margin-top: 4px;
+  line-height: 1.4;
 }
 
 .badge {
@@ -220,8 +251,9 @@ const yearMatch = computed(() => {
 
 .stats {
   display: flex;
-  gap: 24px;
+  gap: 20px;
   margin-top: 12px;
+  flex-wrap: wrap;
 }
 
 .stat {
@@ -249,6 +281,23 @@ const yearMatch = computed(() => {
   display: flex;
   gap: 8px;
   margin-top: 12px;
+  align-items: center;
+}
+
+.link-btn {
+  padding: 6px 12px;
+  border-radius: 4px;
+  font-size: 13px;
+  background: var(--color-bg-primary);
+  color: var(--color-text-primary);
+  text-decoration: none;
+  border: 1px solid var(--color-border);
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.link-btn:hover {
+  background: var(--color-bg-tertiary);
 }
 
 .btn {
@@ -287,6 +336,10 @@ const yearMatch = computed(() => {
   
   .stats {
     gap: 16px;
+  }
+  
+  .actions {
+    flex-wrap: wrap;
   }
 }
 </style>
