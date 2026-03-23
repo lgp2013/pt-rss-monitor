@@ -2,20 +2,38 @@
 <div class="settings">
 <h1>设置</h1>
 <div class="settings-card">
-<h2>全局设置</h2>
+<h2>抓取设置</h2>
 <form @submit.prevent="saveSettings">
 <div class="form-group">
-<label for="refreshInterval">刷新间隔（分钟）</label>
-<input type="number" id="refreshInterval" v-model.number="settings.refreshInterval" min="1" max="1440" />
+<label for="globalFetchInterval">抓取间隔（分钟）</label>
+<input type="number" id="globalFetchInterval" v-model.number="settings.globalFetchInterval" min="1" max="1440" />
 </div>
 <div class="form-group">
-<label for="maxItems">最大资源数量</label>
-<input type="number" id="maxItems" v-model.number="settings.maxItems" min="10" max="1000" />
+<label for="autoFetchEnabled">自动抓取</label>
+<select id="autoFetchEnabled" v-model="settings.autoFetchEnabled">
+<option :value="true">启用</option>
+<option :value="false">禁用</option>
+</select>
+</div>
+<div class="form-group">
+<label for="resourcesRetentionDays">资源保留天数</label>
+<input type="number" id="resourcesRetentionDays" v-model.number="settings.resourcesRetentionDays" min="1" max="365" />
 </div>
 <div class="form-actions">
 <button type="submit" class="save-button">保存设置</button>
 </div>
 </form>
+</div>
+<div class="settings-card">
+<h2>显示设置</h2>
+<div class="form-group">
+<label for="theme">主题</label>
+<select id="theme" v-model="settings.theme">
+<option value="system">跟随系统</option>
+<option value="light">浅色</option>
+<option value="dark">深色</option>
+</select>
+</div>
 </div>
 <div class="settings-card">
 <h2>关于</h2>
@@ -33,8 +51,10 @@ import { ref, onMounted } from 'vue';
 import { getSettings, updateSettings } from '../api';
 
 const settings = ref({
-refreshInterval: 30,
-maxItems: 500
+globalFetchInterval: 30,
+autoFetchEnabled: true,
+resourcesRetentionDays: 30,
+theme: 'system'
 });
 
 onMounted(async () => {
@@ -44,7 +64,12 @@ await loadSettings();
 async function loadSettings() {
 try {
 const loadedSettings = await getSettings();
-settings.value = loadedSettings;
+settings.value = {
+globalFetchInterval: parseInt(loadedSettings.global_fetch_interval) || 30,
+autoFetchEnabled: loadedSettings.auto_fetch_enabled === 'true',
+resourcesRetentionDays: parseInt(loadedSettings.resources_retention_days) || 30,
+theme: loadedSettings.theme || 'system'
+};
 } catch (error) {
 console.error('加载设置失败:', error);
 }
@@ -52,7 +77,12 @@ console.error('加载设置失败:', error);
 
 async function saveSettings() {
 try {
-await updateSettings(settings.value);
+await updateSettings({
+global_fetch_interval: settings.value.globalFetchInterval.toString(),
+auto_fetch_enabled: settings.value.autoFetchEnabled.toString(),
+resources_retention_days: settings.value.resourcesRetentionDays.toString(),
+theme: settings.value.theme
+});
 alert('设置保存成功');
 } catch (error) {
 console.error('保存设置失败:', error);
@@ -101,7 +131,8 @@ color: var(--text-secondary);
 font-weight: 500;
 }
 
-.form-group input {
+.form-group input,
+.form-group select {
 width: 100%;
 padding: 10px;
 border: 1px solid var(--border);
@@ -111,7 +142,8 @@ color: var(--text-primary);
 font-size: 1rem;
 }
 
-.form-group input:focus {
+.form-group input:focus,
+.form-group select:focus {
 outline: none;
 border-color: var(--primary);
 box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2);
