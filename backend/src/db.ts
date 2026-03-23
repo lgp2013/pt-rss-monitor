@@ -184,6 +184,13 @@ class InMemoryDB {
   prepare(sql: string): any {
     return {
       all: (...params: any[]) => {
+        // Debug: log the SQL and first check
+        if (sql.includes('SELECT r.')) {
+          console.log(`[DEBUG ALL] SQL with SELECT r. detected, checking JOIN condition...`);
+          console.log(`[DEBUG ALL] SQL: ${sql.substring(0, 100)}`);
+          console.log(`[DEBUG ALL] includes 'FROM resources r JOIN sources s': ${sql.includes('FROM resources r JOIN sources s')}`);
+        }
+        
         if (sql.includes('SELECT * FROM sources')) {
           return this.sources;
         } else if (sql.includes('FROM resources r JOIN sources s')) {
