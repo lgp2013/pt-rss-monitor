@@ -287,35 +287,51 @@ class InMemoryDB {
 
           // Apply ORDER BY
           if (sql.includes('ORDER BY')) {
-            const match = sql.match(/ORDER BY r\.(\w+) (ASC|DESC)/i);
+            const match = sql.match(/ORDER BY r\.(\w+)\s+(ASC|DESC)/i);
             if (match) {
               const [, sortColumn, sortOrder] = match;
+              const asc = sortOrder.toLowerCase() === 'asc';
               filteredResources.sort((a, b) => {
                 let aValue = a[sortColumn as keyof typeof a];
                 let bValue = b[sortColumn as keyof typeof b];
+                
+                // Handle null/undefined - push to end
+                if (aValue == null && bValue == null) return 0;
+                if (aValue == null) return asc ? 1 : -1;
+                if (bValue == null) return asc ? -1 : 1;
 
-                // Handle string vs number comparison
+                // Handle string comparison
                 if (typeof aValue === 'string' && typeof bValue === 'string') {
-                  return sortOrder.toLowerCase() === 'asc' ? 
-                    aValue.localeCompare(bValue) : 
-                    bValue.localeCompare(aValue);
-                } else if (typeof aValue === 'number' && typeof bValue === 'number') {
-                  return sortOrder.toLowerCase() === 'asc' ? 
-                    aValue - bValue : 
-                    bValue - aValue;
+                  return asc ? aValue.localeCompare(bValue) : bValue.localeCompare(aValue);
                 }
-                return 0;
+                // Handle number comparison
+                if (typeof aValue === 'number' && typeof bValue === 'number') {
+                  return asc ? aValue - bValue : bValue - aValue;
+                }
+                // Fallback string conversion
+                const aStr = String(aValue);
+                const bStr = String(bValue);
+                return asc ? aStr.localeCompare(bStr) : bStr.localeCompare(aStr);
               });
             }
           }
 
-          // Apply LIMIT and OFFSET
+          // Apply LIMIT and OFFSET - use params array since SQL has ? placeholders
           if (sql.includes('LIMIT')) {
-            const limitMatch = sql.match(/LIMIT (\d+) OFFSET (\d+)/);
-            if (limitMatch) {
-              const limit = parseInt(limitMatch[1], 10);
-              const offset = parseInt(limitMatch[2], 10);
+            // LIMIT and OFFSET are the last two params
+            const limit = params[params.length - 2];
+            const offset = params[params.length - 1];
+            if (typeof limit === 'number' && typeof offset === 'number') {
               filteredResources = filteredResources.slice(offset, offset + limit);
+            } else {
+              // Fallback: try to parse from SQL string
+              const limitMatch = sql.match(/LIMIT\s+\?\s+OFFSET\s+\?/);
+              if (limitMatch && params.length >= 2) {
+                filteredResources = filteredResources.slice(
+                  Number(params[params.length - 1]),
+                  Number(params[params.length - 1]) + Number(params[params.length - 2])
+                );
+              }
             }
           }
 
