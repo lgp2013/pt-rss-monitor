@@ -19,11 +19,24 @@ const parser = new Parser({
 
 // Parse size from text
 function parseSize(text: string): string | null {
+  // Try to find size in text (e.g., "10.5 GB", "1.2GB", "500MB")
   const match = text.match(/(\d+\.?\d*)\s*([GMKT]B?)/i);
   if (match) {
     return `${match[1]} ${match[2].toUpperCase()}`;
   }
   return null;
+}
+
+function parseSizeFromLength(bytes: number | string | undefined): string | null {
+  if (!bytes) return null;
+  const num = typeof bytes === 'string' ? parseInt(bytes, 10) : bytes;
+  if (isNaN(num) || num <= 0) return null;
+  const gb = num / (1024 * 1024 * 1024);
+  if (gb >= 1) {
+    return `${gb.toFixed(2)} GB`;
+  }
+  const mb = num / (1024 * 1024);
+  return `${mb.toFixed(2)} MB`;
 }
 
 // Parse free tag from text - handles [免费] [50%] format
@@ -100,15 +113,17 @@ function extractInfo(item: Record<string, any>): Partial<Resource> {
   // Extract clean title and free tag
   const { title: cleanTitle, freeTag } = extractCleanTitle(title);
   
-  // Extract subtitle from title - format specs after the main title
-  // Example: "BLUE EYE SAMURAI S01 2023 Complete 1080p Netflix WEB-DL AVC DDP 5.1 Atmos-DBTV"
-  // -> "1080p Netflix WEB-DL AVC DDP 5.1"
+  // Extract subtitle from title - everything after the resolution
+  // Example: "Mickey Mouse Clubhouse S01 2025 1080p DSNP WEB-DL H.264 DDP 5.1-FFG"
+  // -> "1080p DSNP WEB-DL H.264 DDP 5.1"
   let subtitle: string | null = null;
   const resMatch = title.match(/(2160p|1080p|720p|480p)/i);
   if (resMatch) {
     const idx = title.indexOf(resMatch[1]);
     const afterRes = title.substring(idx + resMatch[1].length);
-    subtitle = (resMatch[1] + ' ' + afterRes).substring(0, 60).trim();
+    // Take everything after resolution until we hit a year (4 digits) or too long
+    const beforeYear = afterRes.replace(/\s*\d{4}\s*$/, '').trim();
+    subtitle = (resMatch[1] + ' ' + beforeYear).substring(0, 50).trim();
   }
   
   // Try to extract poster URL from description (most reliable for PT sites)
@@ -159,7 +174,7 @@ function extractInfo(item: Record<string, any>): Partial<Resource> {
   }
   
   return {
-    size: parseSize(text),
+    size: parseSize(text) || parseSizeFromLength(item.enclosure?.length),
     free_tag: freeTag || parseFreeTag(text),
     seeders: parseSeeders(text),
     leechers: parseLeechers(text),
