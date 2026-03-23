@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from 'vue';
+import { computed, ref } from 'vue';
 
 const props = defineProps<{
   resource: {
@@ -17,12 +17,15 @@ const props = defineProps<{
     pub_date: string | null;
     subtitle?: string | null;
     poster_url?: string | null;
+    description?: string | null;
   };
 }>();
 
 const emit = defineEmits<{
   delete: [id: number];
 }>();
+
+const showFullDescription = ref(false);
 
 const formatTime = (dateStr: string | null) => {
   if (!dateStr) return '-';
@@ -46,6 +49,27 @@ const badgeClass = computed(() => {
   if (tag === 'FREE') return 'badge-free';
   if (tag?.includes('%')) return 'badge-discount';
   return 'badge-free';
+});
+
+// Clean HTML tags from description
+const cleanDescription = computed(() => {
+  if (!props.resource.description) return '';
+  return props.resource.description
+    .replace(/<[^>]*>/g, '') // Remove HTML tags
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .trim();
+});
+
+// Truncated description for display
+const shortDescription = computed(() => {
+  const desc = cleanDescription.value;
+  if (!desc) return '';
+  return desc.length > 150 ? desc.substring(0, 150) + '...' : desc;
 });
 </script>
 
@@ -108,6 +132,16 @@ const badgeClass = computed(() => {
         <div class="stat">
           <span class="stat-label">时间</span>
           <span class="stat-value">{{ formatTime(resource.created_at) }}</span>
+        </div>
+      </div>
+      <div v-if="cleanDescription" class="description">
+        <div v-if="showFullDescription" class="description-text">
+          {{ cleanDescription }}
+          <button v-if="cleanDescription.length > 150" class="show-less-btn" @click="showFullDescription = false">收起</button>
+        </div>
+        <div v-else class="description-text">
+          {{ shortDescription }}
+          <button v-if="cleanDescription.length > 150" class="show-more-btn" @click="showFullDescription = true">展开</button>
         </div>
       </div>
       <div class="actions">
@@ -311,6 +345,38 @@ const badgeClass = computed(() => {
 
 .btn-primary:hover {
   background: var(--color-accent-hover);
+}
+
+.description {
+  margin-top: 12px;
+  padding: 10px 12px;
+  background: var(--color-bg-primary);
+  border-radius: 6px;
+  border-left: 3px solid var(--color-accent);
+}
+
+.description-text {
+  font-size: 13px;
+  color: var(--color-text-secondary);
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.show-more-btn,
+.show-less-btn {
+  background: none;
+  border: none;
+  color: var(--color-accent);
+  cursor: pointer;
+  font-size: 12px;
+  padding: 0;
+  margin-left: 8px;
+}
+
+.show-more-btn:hover,
+.show-less-btn:hover {
+  text-decoration: underline;
 }
 
 @media (max-width: 600px) {
