@@ -119,7 +119,7 @@ color: var(--text-primary);
 }
 
 .add-button {
-background: var(--primary-color);
+background: var(--primary);
 color: white;
 border: none;
 padding: 10px 20px;

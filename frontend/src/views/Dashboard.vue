@@ -66,7 +66,10 @@ const today = new Date();
 today.setHours(0, 0, 0, 0);
 
 todayCount.value = resources.filter(resource => {
-const resourceDate = new Date(resource.pub_date);
+const pubDate = resource.pub_date || resource.created_at;
+if (!pubDate) return false;
+const resourceDate = new Date(pubDate);
+if (isNaN(resourceDate.getTime())) return false;
 return resourceDate >= today;
 }).length;
 
@@ -98,7 +101,7 @@ margin-bottom: 40px;
 }
 
 .stat-card {
-background: var(--card-bg);
+background: var(--bg-secondary);
 padding: 20px;
 border-radius: 8px;
 box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
@@ -127,7 +130,7 @@ color: var(--text-primary);
 text-align: center;
 padding: 40px;
 color: var(--text-secondary);
-background: var(--card-bg);
+background: var(--bg-secondary);
 border-radius: 8px;
 }
 
@@ -140,7 +143,7 @@ grid-template-columns: 1fr;
 .resource-table {
 width: 100%;
 border-collapse: collapse;
-background: var(--card-bg);
+background: var(--bg-secondary);
 border-radius: 8px;
 overflow: hidden;
 box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
