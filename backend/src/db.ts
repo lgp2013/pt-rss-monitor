@@ -183,56 +183,74 @@ class InMemoryDB {
           return this.sources;
         } else if (sql.includes('FROM resources r JOIN sources s')) {
           // Handle JOIN query for resources with source info
-          console.log(`[DEBUG] JOIN branch hit, resources count=${this.resources.length}, params=${JSON.stringify(params)}`);
-          let results = this.resources
-            .map(resource => {
-              const source = this.sources.find(s => s.id === resource.source_id);
-              return {
-                ...resource,
-                source_name: source?.name || '',
-                category: source?.category || ''
-              };
-            });
-
-          // Apply WHERE clause filters based on params
-          // params order: [source_id?, category?, search?, limit, offset]
-          let paramIndex = 0;
+          console.log(`[DEBUG] JOIN: resources=${this.resources.length}, sources=${this.sources.length}, params=${JSON.stringify(params)}`);
           
-          // source_id filter
-          if (sql.includes('source_id =')) {
-            const sourceId = params[paramIndex++];
+          let results = this.resources.map(resource => {
+            const source = this.sources.find(s => s.id === resource.source_id);
+            return {
+              ...resource,
+              source_name: source?.name || '',
+              category: source?.category || ''
+            };
+          });
+
+          console.log(`[DEBUG] After JOIN map: ${results.length} results`);
+
+          // Determine actual filter params vs limit/offset
+          // SQL: WHERE 1=1 [AND r.source_id = ?] [AND s.category = ?] [AND r.title LIKE ?] ORDER BY ... LIMIT ? OFFSET ?
+          // params: [source_id?, category?, search?, limit, offset]
+          // We can detect filter params by checking SQL for presence of each clause
+          
+          const hasSourceIdFilter = sql.includes('r.source_id = ?');
+          const hasCategoryFilter = sql.includes('s.category = ?');
+          const hasSearchFilter = sql.includes('title LIKE ?');
+          const hasLimitOffset = sql.includes('LIMIT');
+
+          let filterParamIndex = 0;
+          let limit = undefined;
+          let offset = undefined;
+
+          if (hasLimitOffset && params.length >= 2) {
+            // Last two params are limit and offset
+            offset = Number(params[params.length - 1]);
+            limit = Number(params[params.length - 2]);
+          }
+
+          // Apply filters only if they exist in SQL and have valid values
+          if (hasSourceIdFilter && params[filterParamIndex] !== undefined) {
+            const sourceId = params[filterParamIndex];
             if (sourceId) {
               results = results.filter(r => r.source_id === sourceId);
+              console.log(`[DEBUG] Filter by source_id=${sourceId}: ${results.length} results`);
             }
+            filterParamIndex++;
           }
           
-          // category filter
-          if (sql.includes('s.category =')) {
-            const category = params[paramIndex++];
+          if (hasCategoryFilter && params[filterParamIndex] !== undefined) {
+            const category = params[filterParamIndex];
             if (category) {
               results = results.filter(r => r.category === category);
+              console.log(`[DEBUG] Filter by category=${category}: ${results.length} results`);
             }
+            filterParamIndex++;
           }
           
-          // title search filter
-          if (sql.includes('title LIKE')) {
-            const search = params[paramIndex++];
+          if (hasSearchFilter && params[filterParamIndex] !== undefined) {
+            const search = params[filterParamIndex];
             if (search) {
-              const searchTerm = search.replace(/%/g, '');
+              const searchTerm = String(search).replace(/%/g, '');
               results = results.filter(r => r.title.includes(searchTerm));
+              console.log(`[DEBUG] Filter by search=${searchTerm}: ${results.length} results`);
             }
+            filterParamIndex++;
           }
 
-          console.log(`[DEBUG] After filtering: ${results.length} results`);
+          console.log(`[DEBUG] After all filters: ${results.length} results, limit=${limit}, offset=${offset}`);
 
-          // Apply LIMIT and OFFSET - they are the last two params
-          if (sql.includes('LIMIT')) {
-            const limit = Number(params[params.length - 2]);
-            const offset = Number(params[params.length - 1]);
-            console.log(`[DEBUG] LIMIT/OFFSET: total=${results.length}, limit=${limit}, offset=${offset}`);
-            if (!isNaN(limit) && !isNaN(offset)) {
-              results = results.slice(offset, offset + limit);
-            }
+          // Apply LIMIT and OFFSET
+          if (limit !== undefined && offset !== undefined && !isNaN(limit) && !isNaN(offset)) {
+            results = results.slice(offset, offset + limit);
+            console.log(`[DEBUG] After slice: ${results.length} results`);
           }
 
           return results;
