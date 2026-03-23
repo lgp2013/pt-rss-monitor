@@ -355,6 +355,16 @@ class InMemoryDB {
           const [name, url, category, fetch_interval, enabled] = params;
           this.addSource({ name, url, category, fetch_interval, enabled });
           return { lastInsertRowid: this.sourceIdCounter - 1 };
+        } else if (sql.includes('INSERT INTO settings')) {
+          // Handle INSERT INTO settings with ON CONFLICT (upsert)
+          const [key, value] = params;
+          const existingIndex = this.settings.findIndex(s => s.key === key);
+          if (existingIndex >= 0) {
+            this.settings[existingIndex].value = value;
+          } else {
+            this.settings.push({ key, value });
+          }
+          return { lastInsertRowid: 0 };
         } else if (sql.includes('UPDATE sources')) {
           const [name, url, category, fetch_interval, enabled, id] = params;
           this.updateSource(id, { name, url, category, fetch_interval, enabled });
