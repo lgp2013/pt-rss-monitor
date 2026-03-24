@@ -10,6 +10,7 @@ import resource from './routes/resource.js';
 import settings from './routes/settings.js';
 import snapshots from './routes/snapshots.js';
 import fetchlog from './routes/fetchlog.js';
+import keywordRules from './routes/keywordRules.js';
 import { fetchAllSources } from './services/fetcher.js';
 import db from './db.js';
 
@@ -39,6 +40,7 @@ app.route('/api/resources', resource);
 app.route('/api/settings', settings);
 app.route('/api/snapshots', snapshots);
 app.route('/api/fetchlog', fetchlog);
+app.route('/api/keyword-rules', keywordRules);
 
 // Health check
 app.get('/api/health', (c) => c.json({ status: 'ok' }));

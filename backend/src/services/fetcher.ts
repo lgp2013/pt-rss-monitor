@@ -241,6 +241,19 @@ export async function fetchSource(source: Source): Promise<number> {
           );
           newCount++;
           console.log(`[FETCHER] Inserted: ${item.title?.substring(0, 30)}...`);
+
+          // Keyword rule matching
+          const matchedRules = db.matchKeywordRules({
+            title: item.title || 'Untitled',
+            source_id: source.id,
+            link,
+          });
+          if (matchedRules.length > 0) {
+            console.log(`[KEYWORD] Matched ${matchedRules.length} rule(s) for: ${item.title?.substring(0, 50)}`);
+            for (const rule of matchedRules) {
+              console.log(`[KEYWORD]   Rule: "${rule.name}" matched`);
+            }
+          }
         } else {
           // Resource exists, check if we need to update subtitle or poster_url
           const existing = db.prepare('SELECT * FROM resources WHERE id = ?').get(existingId.id);

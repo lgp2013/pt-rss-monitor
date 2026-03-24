@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue';
-import { settingsApi, resourcesApi, sourcesApi } from '../api';
+import { settingsApi, resourcesApi, sourcesApi, keywordRulesApi } from '../api';
 import ThemeToggle from '../components/ThemeToggle.vue';
 
 const settings = ref({
@@ -23,19 +23,33 @@ const categories = ref<string[]>([]);
 const newCategory = ref('');
 const sources = ref<any[]>([]);
 
+// Keyword Rules
+const keywordRules = ref<any[]>([]);
+const showRuleDialog = ref(false);
+const editingRule = ref<any>(null);
+const ruleForm = ref({
+  name: '',
+  keywords: '',
+  exclude: '',
+  source_ids: [] as number[],
+  enabled: true,
+});
+
 async function loadSettings() {
   loading.value = true;
   try {
-    const [settingsData, statsData, categoriesData, sourcesData] = await Promise.all([
+    const [settingsData, statsData, categoriesData, sourcesData, rulesData] = await Promise.all([
       settingsApi.get(),
       settingsApi.getStats(),
       settingsApi.getCategories(),
       sourcesApi.list(),
+      keywordRulesApi.list(),
     ]);
     settings.value = { ...settings.value, ...settingsData };
     stats.value = statsData;
     categories.value = categoriesData.categories || [];
     sources.value = sourcesData;
+    keywordRules.value = rulesData;
   } catch (error) {
     console.error('Failed to load settings:', error);
   } finally {
@@ -107,6 +121,67 @@ async function updateSourceCategory(sourceId: number, newCategory: string) {
     await loadSettings();
   } catch (error) {
     console.error('Failed to update source category:', error);
+  }
+}
+
+// Keyword Rules
+function openAddRule() {
+  editingRule.value = null;
+  ruleForm.value = { name: '', keywords: '', exclude: '', source_ids: [], enabled: true };
+  showRuleDialog.value = true;
+}
+
+function openEditRule(rule: any) {
+  editingRule.value = rule;
+  ruleForm.value = {
+    name: rule.name,
+    keywords: rule.keywords.join(', '),
+    exclude: rule.exclude.join(', '),
+    source_ids: rule.source_ids,
+    enabled: rule.enabled,
+  };
+  showRuleDialog.value = true;
+}
+
+async function saveRule() {
+  const { name, keywords, exclude, source_ids, enabled } = ruleForm.value;
+  if (!name.trim() || !keywords.trim()) {
+    alert('名称和关键词不能为空');
+    return;
+  }
+  const keywordList = keywords.split(',').map(k => k.trim()).filter(Boolean);
+  const excludeList = exclude.split(',').map(k => k.trim()).filter(Boolean);
+
+  try {
+    if (editingRule.value) {
+      await keywordRulesApi.update(editingRule.value.id, { name, keywords: keywordList, exclude: excludeList, source_ids, enabled });
+    } else {
+      await keywordRulesApi.create({ name, keywords: keywordList, exclude: excludeList, source_ids, enabled });
+    }
+    showRuleDialog.value = false;
+    await loadSettings();
+  } catch (error) {
+    console.error('Failed to save rule:', error);
+    alert('保存失败');
+  }
+}
+
+async function toggleRule(rule: any) {
+  try {
+    await keywordRulesApi.update(rule.id, { enabled: !rule.enabled });
+    await loadSettings();
+  } catch (error) {
+    console.error('Failed to toggle rule:', error);
+  }
+}
+
+async function deleteRule(id: number) {
+  if (!confirm('确定删除这条规则？')) return;
+  try {
+    await keywordRulesApi.delete(id);
+    await loadSettings();
+  } catch (error) {
+    console.error('Failed to delete rule:', error);
   }
 }
 
@@ -263,6 +338,93 @@ onMounted(() => {
           </div>
         </div>
       </section>
+
+      <!-- Keyword Rules -->
+      <section class="settings-section">
+        <h2 class="section-title">关键词监控</h2>
+        <p class="section-description">设置关键词规则，新资源匹配时会在日志中告警。多个关键词用逗号分隔，所有关键词都匹配时触发（AND 逻辑）</p>
+
+        <div class="rules-list">
+          <div v-if="keywordRules.length === 0" class="empty-message">
+            暂无监控规则，添加后可追踪符合条件的新资源
+          </div>
+
+          <div v-for="rule in keywordRules" :key="rule.id" class="rule-item">
+            <div class="rule-header">
+              <div class="rule-info">
+                <label class="toggle toggle-sm">
+                  <input type="checkbox" :checked="rule.enabled" @change="toggleRule(rule)" />
+                  <span class="toggle-slider"></span>
+                </label>
+                <span class="rule-name">{{ rule.name }}</span>
+                <span v-if="rule.match_count > 0" class="rule-badge">{{ rule.match_count }}次匹配</span>
+              </div>
+              <div class="rule-actions">
+                <button class="btn btn-small" @click="openEditRule(rule)">编辑</button>
+                <button class="btn btn-small btn-danger" @click="deleteRule(rule.id)">删除</button>
+              </div>
+            </div>
+            <div class="rule-detail">
+              <span class="rule-kw">
+                <span class="label-text">匹配</span>
+                <code>{{ rule.keywords.join(', ') }}</code>
+              </span>
+              <span v-if="rule.exclude.length > 0" class="rule-kw">
+                <span class="label-text">排除</span>
+                <code>{{ rule.exclude.join(', ') }}</code>
+              </span>
+              <span v-if="rule.source_ids.length > 0" class="rule-kw">
+                <span class="label-text">站点</span>
+                <span>{{ rule.source_ids.length }} 个站点</span>
+              </span>
+              <span v-else class="rule-kw">
+                <span class="label-text">站点</span>
+                <span>全部站点</span>
+              </span>
+              <span v-if="rule.last_matched_at" class="rule-kw">
+                <span class="label-text">最近匹配</span>
+                <span>{{ new Date(rule.last_matched_at).toLocaleString('zh-CN') }}</span>
+              </span>
+            </div>
+          </div>
+        </div>
+
+        <div class="rule-add-row">
+          <button class="btn btn-primary" @click="openAddRule">添加规则</button>
+        </div>
+      </section>
+
+      <!-- Rule Dialog -->
+      <div v-if="showRuleDialog" class="dialog-overlay" @click.self="showRuleDialog = false">
+        <div class="dialog">
+          <h3 class="dialog-title">{{ editingRule ? '编辑规则' : '添加规则' }}</h3>
+          <div class="form-group">
+            <label class="form-label">规则名称</label>
+            <input v-model="ruleForm.name" type="text" class="input" placeholder="例如：4K蓝光免费电影" />
+          </div>
+          <div class="form-group">
+            <label class="form-label">匹配关键词 <span class="hint">（多个用逗号分隔，全部匹配才触发）</span></label>
+            <input v-model="ruleForm.keywords" type="text" class="input" placeholder="例如：4K, 蓝光, 免费" />
+          </div>
+          <div class="form-group">
+            <label class="form-label">排除关键词 <span class="hint">（包含这些词则跳过）</span></label>
+            <input v-model="ruleForm.exclude" type="text" class="input" placeholder="例如：韩剧, 日韩" />
+          </div>
+          <div class="form-group">
+            <label class="form-label">应用站点 <span class="hint">（不选则应用于全部站点）</span></label>
+            <div class="source-checkboxes">
+              <label v-for="source in sources" :key="source.id" class="source-check">
+                <input type="checkbox" :value="source.id" v-model="ruleForm.source_ids" />
+                {{ source.name }}
+              </label>
+            </div>
+          </div>
+          <div class="dialog-footer">
+            <button class="btn" @click="showRuleDialog = false">取消</button>
+            <button class="btn btn-primary" @click="saveRule">保存</button>
+          </div>
+        </div>
+      </div>
 
       <!-- Data Management -->
       <section class="settings-section">
@@ -630,15 +792,185 @@ onMounted(() => {
   .stats-grid {
     grid-template-columns: 1fr;
   }
-  
+
   .setting-row {
     flex-direction: column;
     align-items: flex-start;
     gap: 8px;
   }
-  
+
   .setting-control {
     width: 100%;
   }
+}
+
+/* Keyword Rules */
+.rules-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.rule-item {
+  background: var(--color-bg-primary);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  padding: 14px;
+}
+
+.rule-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.rule-info {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.rule-name {
+  font-weight: 600;
+  font-size: 15px;
+  color: var(--color-text-primary);
+}
+
+.rule-badge {
+  background: var(--color-accent);
+  color: white;
+  font-size: 12px;
+  padding: 2px 8px;
+  border-radius: 10px;
+}
+
+.rule-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.rule-detail {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  font-size: 13px;
+  color: var(--color-text-secondary);
+}
+
+.rule-kw {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.rule-kw code {
+  background: var(--color-bg-tertiary);
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 12px;
+  color: var(--color-text-primary);
+}
+
+.label-text {
+  color: var(--color-text-muted);
+  font-size: 12px;
+}
+
+.rule-add-row {
+  margin-top: 12px;
+}
+
+/* Rule Dialog */
+.dialog-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.dialog {
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  padding: 24px;
+  width: 480px;
+  max-width: 90vw;
+  max-height: 85vh;
+  overflow-y: auto;
+}
+
+.dialog-title {
+  font-size: 18px;
+  font-weight: 700;
+  margin-bottom: 20px;
+  color: var(--color-text-primary);
+}
+
+.dialog-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 20px;
+}
+
+.form-group {
+  margin-bottom: 16px;
+}
+
+.form-label {
+  display: block;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-text-secondary);
+  margin-bottom: 6px;
+}
+
+.form-label .hint {
+  font-weight: 400;
+  color: var(--color-text-muted);
+}
+
+.source-checkboxes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  max-height: 150px;
+  overflow-y: auto;
+  padding: 8px;
+  background: var(--color-bg-primary);
+  border-radius: 6px;
+}
+
+.source-check {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 13px;
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 4px;
+}
+
+.source-check:hover {
+  background: var(--color-bg-tertiary);
+}
+
+.toggle-sm {
+  width: 36px;
+  height: 18px;
+}
+
+.toggle-sm .toggle-slider:before {
+  height: 14px;
+  width: 14px;
+}
+
+.toggle-sm input:checked + .toggle-slider:before {
+  transform: translateX(18px);
 }
 </style>

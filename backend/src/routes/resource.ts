@@ -76,8 +76,15 @@ resource.get('/', (c) => {
   const allParams = [...params, limit, offset];
   const resources = db.prepare(query).all(...allParams) as (Resource & { source_name: string; category: string })[];
 
+  // Mark resources created in the last 2 hours as "isNew"
+  const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000);
+  const now = new Date();
+
   return c.json({
-    data: resources,
+    data: resources.map(r => ({
+      ...r,
+      isNew: new Date(r.created_at) > twoHoursAgo,
+    })),
     pagination: {
       page,
       limit,

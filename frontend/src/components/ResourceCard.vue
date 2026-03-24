@@ -18,6 +18,7 @@ const props = defineProps<{
     subtitle?: string | null;
     poster_url?: string | null;
     description?: string | null;
+    isNew?: boolean;
   };
 }>();
 
@@ -110,6 +111,7 @@ const shortDescription = computed(() => {
           <span v-if="resource.free_tag" class="badge" :class="badgeClass">
             {{ resource.free_tag }}
           </span>
+          <span v-if="resource.isNew" class="badge badge-new">NEW</span>
           <span v-if="resolution" class="badge resolution-badge" :class="resolutionClass">
             {{ resolution }}
           </span>
@@ -264,6 +266,17 @@ const shortDescription = computed(() => {
 .badge-free {
   background: var(--color-free);
   color: white;
+}
+
+.badge-new {
+  background: #f59e0b;
+  color: white;
+  animation: pulse-badge 2s ease-in-out infinite;
+}
+
+@keyframes pulse-badge {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.7; }
 }
 
 .badge-discount {

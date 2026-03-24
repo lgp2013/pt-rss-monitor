@@ -7,7 +7,7 @@ const sources = new Hono();
 // GET /api/sources - List all sources
 sources.get('/', (c) => {
   const allSources = db.allSources();
-  // Add resource count and today's count for each source
+  const allHistories = db.allFetchHistories();
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   const todayStr = today.toISOString();
@@ -15,10 +15,41 @@ sources.get('/', (c) => {
   const sourcesWithStats = allSources.map(source => {
     const sourceResources = db.allResources().filter(r => r.source_id === source.id);
     const todayResources = sourceResources.filter(r => new Date(r.created_at) >= today);
+
+    // Compute health stats from fetch history
+    const sourceHistories = allHistories
+      .filter(h => h.source_id === source.id)
+      .sort((a, b) => new Date(b.fetched_at).getTime() - new Date(a.fetched_at).getTime());
+
+    const successHistories = sourceHistories.filter(h => h.status === 'success');
+    const totalAttempts = sourceHistories.length;
+    const successCount = successHistories.length;
+    const successRate = totalAttempts > 0 ? Math.round((successCount / totalAttempts) * 100) : null;
+
+    // Last successful fetch
+    const lastSuccess = successHistories[0] || null;
+
+    // Consecutive failures (from most recent)
+    let consecutiveFailures = 0;
+    for (const h of sourceHistories) {
+      if (h.status === 'error') consecutiveFailures++;
+      else break;
+    }
+
     return {
       ...source,
       total_resources: sourceResources.length,
       today_resources: todayResources.length,
+      health: {
+        total_attempts: totalAttempts,
+        success_count: successCount,
+        success_rate: successRate,
+        last_success_at: lastSuccess?.fetched_at || null,
+        last_fetch_at: sourceHistories[0]?.fetched_at || null,
+        last_fetch_status: sourceHistories[0]?.status || null,
+        last_fetch_message: sourceHistories[0]?.message || null,
+        consecutive_failures: consecutiveFailures,
+      },
     };
   });
 

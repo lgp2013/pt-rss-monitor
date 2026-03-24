@@ -59,12 +59,25 @@ interface FetchHistory {
   fetched_at: string;
 }
 
+interface KeywordRule {
+  id: number;
+  name: string;
+  keywords: string[];         // 关键词列表，AND 关系
+  exclude: string[];          // 排除词，匹配则跳过
+  source_ids: number[];       // 针对哪些源，[] 表示全部
+  enabled: boolean;
+  created_at: string;
+  last_matched_at: string | null;
+  match_count: number;
+}
+
 interface DatabaseState {
   sources: Source[];
   resources: Resource[];
   settings: Setting[];
   searchSnapshots: SearchSnapshot[];
   fetchHistories: FetchHistory[];
+  keywordRules: KeywordRule[];
   sourceIdCounter: number;
   resourceIdCounter: number;
   snapshotIdCounter: number;
@@ -77,10 +90,12 @@ class InMemoryDB {
   private settings: Setting[] = [];
   private searchSnapshots: SearchSnapshot[] = [];
   private fetchHistories: FetchHistory[] = [];
+  private keywordRules: KeywordRule[] = [];
   private sourceIdCounter = 1;
   private resourceIdCounter = 1;
   private snapshotIdCounter = 1;
   private fetchHistoryIdCounter = 1;
+  private keywordRuleIdCounter = 1;
   private dbPath: string;
 
   constructor() {
@@ -272,6 +287,66 @@ class InMemoryDB {
     return initialLength - this.fetchHistories.length;
   }
 
+  // Keyword Rules
+  allKeywordRules(): KeywordRule[] {
+    return this.keywordRules;
+  }
+
+  getKeywordRule(id: number): KeywordRule | undefined {
+    return this.keywordRules.find(r => r.id === id);
+  }
+
+  addKeywordRule(rule: Omit<KeywordRule, 'id' | 'created_at' | 'last_matched_at' | 'match_count'>): KeywordRule {
+    const newRule: KeywordRule = {
+      ...rule,
+      id: this.keywordRuleIdCounter++,
+      created_at: new Date().toISOString(),
+      last_matched_at: null,
+      match_count: 0,
+    };
+    this.keywordRules.push(newRule);
+    this.saveData();
+    return newRule;
+  }
+
+  updateKeywordRule(id: number, updates: Partial<KeywordRule>): KeywordRule | undefined {
+    const index = this.keywordRules.findIndex(r => r.id === id);
+    if (index === -1) return undefined;
+    this.keywordRules[index] = { ...this.keywordRules[index], ...updates };
+    this.saveData();
+    return this.keywordRules[index];
+  }
+
+  deleteKeywordRule(id: number): boolean {
+    const initialLength = this.keywordRules.length;
+    this.keywordRules = this.keywordRules.filter(r => r.id !== id);
+    this.saveData();
+    return this.keywordRules.length < initialLength;
+  }
+
+  // Match a resource against keyword rules, returns matched rules
+  matchKeywordRules(resource: { title: string; source_id: number; link?: string }): KeywordRule[] {
+    const matched: KeywordRule[] = [];
+    for (const rule of this.keywordRules) {
+      if (!rule.enabled) continue;
+      // Check source filter
+      if (rule.source_ids.length > 0 && !rule.source_ids.includes(resource.source_id)) continue;
+      // Check exclude words
+      const text = (resource.title + ' ' + (resource.link || '')).toLowerCase();
+      const isExcluded = rule.exclude.some(kw => text.includes(kw.toLowerCase()));
+      if (isExcluded) continue;
+      // Check include keywords (AND: all must match)
+      const allMatch = rule.keywords.every(kw => text.includes(kw.toLowerCase()));
+      if (allMatch) {
+        rule.match_count++;
+        rule.last_matched_at = new Date().toISOString();
+        matched.push(rule);
+      }
+    }
+    if (matched.length > 0) this.saveData();
+    return matched;
+  }
+
   // Exec method for compatibility
   exec(sql: string): void {}
 
@@ -461,10 +536,12 @@ class InMemoryDB {
         this.settings = state.settings || [];
         this.searchSnapshots = state.searchSnapshots || [];
         this.fetchHistories = state.fetchHistories || [];
+        this.keywordRules = state.keywordRules || [];
         this.sourceIdCounter = state.sourceIdCounter || 1;
         this.resourceIdCounter = state.resourceIdCounter || 1;
         this.snapshotIdCounter = state.snapshotIdCounter || 1;
         this.fetchHistoryIdCounter = state.fetchHistoryIdCounter || 1;
+        this.keywordRuleIdCounter = state.keywordRuleIdCounter || 1;
         console.log(`Loaded data from ${this.dbPath}`);
       }
     } catch (error) {
@@ -481,10 +558,12 @@ class InMemoryDB {
         settings: this.settings,
         searchSnapshots: this.searchSnapshots,
         fetchHistories: this.fetchHistories,
+        keywordRules: this.keywordRules,
         sourceIdCounter: this.sourceIdCounter,
         resourceIdCounter: this.resourceIdCounter,
         snapshotIdCounter: this.snapshotIdCounter,
         fetchHistoryIdCounter: this.fetchHistoryIdCounter,
+        keywordRuleIdCounter: this.keywordRuleIdCounter,
       };
       writeFileSync(this.dbPath, JSON.stringify(state, null, 2));
     } catch (error) {

@@ -140,3 +140,35 @@ export const fetchlogApi = {
   list: () =>
     fetchJson<{ data: any[] }>('/fetchlog').then(res => res.data),
 };
+
+// Keyword Rules API
+export const keywordRulesApi = {
+  list: () =>
+    fetchJson<any[]>('/keyword-rules'),
+
+  get: (id: number) =>
+    fetchJson<any>(`/keyword-rules/${id}`),
+
+  create: (data: { name: string; keywords: string[]; exclude?: string[]; source_ids?: number[]; enabled?: boolean }) =>
+    fetchJson<any>('/keyword-rules', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+
+  update: (id: number, data: Partial<{ name: string; keywords: string[]; exclude: string[]; source_ids: number[]; enabled: boolean }>) =>
+    fetchJson<any>(`/keyword-rules/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    }),
+
+  delete: (id: number) =>
+    fetchJson<{ success: boolean }>(`/keyword-rules/${id}`, {
+      method: 'DELETE',
+    }),
+
+  match: (title: string, source_id: number, link?: string) =>
+    fetchJson<{ matched: any[] }>('/keyword-rules/match', {
+      method: 'POST',
+      body: JSON.stringify({ title, source_id, link }),
+    }),
+};
