@@ -82,6 +82,7 @@ interface DatabaseState {
   resourceIdCounter: number;
   snapshotIdCounter: number;
   fetchHistoryIdCounter: number;
+  keywordRuleIdCounter: number;
 }
 
 class InMemoryDB {
