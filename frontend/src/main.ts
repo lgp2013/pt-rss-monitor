@@ -6,6 +6,9 @@ import './styles/theme.css';
 import Dashboard from './views/Dashboard.vue';
 import Sources from './views/Sources.vue';
 import Settings from './views/Settings.vue';
+import Search from './views/Search.vue';
+import Sites from './views/Sites.vue';
+import MyData from './views/MyData.vue';
 
 // Theme initialization
 function initTheme() {
@@ -36,6 +39,9 @@ const router = createRouter({
     { path: '/', name: 'dashboard', component: Dashboard },
     { path: '/sources', name: 'sources', component: Sources },
     { path: '/settings', name: 'settings', component: Settings },
+    { path: '/search', name: 'search', component: Search },
+    { path: '/sites', name: 'sites', component: Sites },
+    { path: '/mydata', name: 'mydata', component: MyData },
   ],
 });
 

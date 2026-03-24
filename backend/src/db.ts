@@ -1,7 +1,7 @@
 // In-memory database with file persistence for development
 
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'fs';
-import { dirname, resolve } from 'path';
+import { resolve } from 'path';
 
 interface Source {
   id: number;
@@ -39,24 +39,51 @@ interface Setting {
   value: string;
 }
 
+interface SearchSnapshot {
+  id: number;
+  name: string;
+  query: string;
+  filters: string;
+  result_ids: number[];
+  source_ids: number[];
+  created_at: string;
+}
+
+interface FetchHistory {
+  id: number;
+  source_id: number;
+  source_name: string;
+  status: 'success' | 'error';
+  message: string;
+  new_resources: number;
+  fetched_at: string;
+}
+
 interface DatabaseState {
   sources: Source[];
   resources: Resource[];
   settings: Setting[];
+  searchSnapshots: SearchSnapshot[];
+  fetchHistories: FetchHistory[];
   sourceIdCounter: number;
   resourceIdCounter: number;
+  snapshotIdCounter: number;
+  fetchHistoryIdCounter: number;
 }
 
 class InMemoryDB {
   private sources: Source[] = [];
   private resources: Resource[] = [];
   private settings: Setting[] = [];
+  private searchSnapshots: SearchSnapshot[] = [];
+  private fetchHistories: FetchHistory[] = [];
   private sourceIdCounter = 1;
   private resourceIdCounter = 1;
+  private snapshotIdCounter = 1;
+  private fetchHistoryIdCounter = 1;
   private dbPath: string;
 
   constructor() {
-    // Set database file path
     const dbPathEnv = process.env.DB_PATH;
     if (dbPathEnv) {
       this.dbPath = dbPathEnv;
@@ -68,10 +95,8 @@ class InMemoryDB {
       this.dbPath = resolve(dataDir, 'pt-rss-monitor.json');
     }
 
-    // Load data from file if it exists
     this.loadData();
 
-    // Initialize default settings if not exist
     const defaultSettings = [
       { key: 'global_fetch_interval', value: '30' },
       { key: 'auto_fetch_enabled', value: 'true' },
@@ -85,7 +110,6 @@ class InMemoryDB {
       }
     }
 
-    // Save initial data
     this.saveData();
   }
 
@@ -120,10 +144,17 @@ class InMemoryDB {
   deleteSource(id: number): boolean {
     const initialLength = this.sources.length;
     this.sources = this.sources.filter(s => s.id !== id);
-    // Also delete associated resources
     this.resources = this.resources.filter(r => r.source_id !== id);
     this.saveData();
     return this.sources.length < initialLength;
+  }
+
+  deleteSources(ids: number[]): number {
+    const initialLength = this.sources.length;
+    this.sources = this.sources.filter(s => !ids.includes(s.id));
+    this.resources = this.resources.filter(r => !ids.includes(r.source_id));
+    this.saveData();
+    return initialLength - this.sources.length;
   }
 
   // Resources
@@ -151,6 +182,13 @@ class InMemoryDB {
     this.resources = this.resources.filter(r => r.id !== id);
     this.saveData();
     return this.resources.length < initialLength;
+  }
+
+  deleteResources(ids: number[]): number {
+    const initialLength = this.resources.length;
+    this.resources = this.resources.filter(r => !ids.includes(r.id));
+    this.saveData();
+    return initialLength - this.resources.length;
   }
 
   deleteResourcesBySourceId(sourceId: number): number {
@@ -181,105 +219,134 @@ class InMemoryDB {
     return this.settings.find(s => s.key === key) as Setting;
   }
 
-  // Exec method for compatibility
-  exec(sql: string): void {
-    // No-op for in-memory implementation
+  // Search Snapshots
+  allSnapshots(): SearchSnapshot[] {
+    return this.searchSnapshots;
   }
+
+  getSnapshot(id: number): SearchSnapshot | undefined {
+    return this.searchSnapshots.find(s => s.id === id);
+  }
+
+  addSnapshot(snapshot: Omit<SearchSnapshot, 'id' | 'created_at'>): SearchSnapshot {
+    const newSnapshot: SearchSnapshot = {
+      ...snapshot,
+      id: this.snapshotIdCounter++,
+      created_at: new Date().toISOString(),
+    };
+    this.searchSnapshots.push(newSnapshot);
+    this.saveData();
+    return newSnapshot;
+  }
+
+  deleteSnapshot(id: number): boolean {
+    const initialLength = this.searchSnapshots.length;
+    this.searchSnapshots = this.searchSnapshots.filter(s => s.id !== id);
+    this.saveData();
+    return this.searchSnapshots.length < initialLength;
+  }
+
+  // Fetch Histories
+  allFetchHistories(): FetchHistory[] {
+    return this.fetchHistories;
+  }
+
+  addFetchHistory(history: Omit<FetchHistory, 'id'>): FetchHistory {
+    const newHistory: FetchHistory = {
+      ...history,
+      id: this.fetchHistoryIdCounter++,
+    };
+    this.fetchHistories.push(newHistory);
+    // Keep only last 500 histories
+    if (this.fetchHistories.length > 500) {
+      this.fetchHistories = this.fetchHistories.slice(-500);
+    }
+    this.saveData();
+    return newHistory;
+  }
+
+  deleteFetchHistoriesBySourceId(sourceId: number): number {
+    const initialLength = this.fetchHistories.length;
+    this.fetchHistories = this.fetchHistories.filter(h => h.source_id !== sourceId);
+    this.saveData();
+    return initialLength - this.fetchHistories.length;
+  }
+
+  // Exec method for compatibility
+  exec(sql: string): void {}
 
   // Prepare method for compatibility
   prepare(sql: string): any {
     return {
       all: (...params: any[]) => {
-        // Debug: log the SQL and first check
         if (sql.includes('SELECT r.')) {
-          console.log(`[DEBUG ALL] SQL with SELECT r. detected, checking JOIN condition...`);
-          console.log(`[DEBUG ALL] SQL: ${sql.substring(0, 100)}`);
-          console.log(`[DEBUG ALL] includes 'JOIN sources s': ${sql.includes('JOIN sources s')}`);
-        }
-        
-        if (sql.includes('SELECT * FROM sources')) {
-          return this.sources;
-        } else if (sql.includes('JOIN sources s')) {
-          // Handle JOIN query for resources with source info
-          // params: [sourceId?, category?, search?, limit, offset]
-          console.log(`[DEBUG JOIN] total resources=${this.resources.length}, params=${JSON.stringify(params)}`);
-          
-          // Build results with source info
-          let results = this.resources.map(r => {
-            const src = this.sources.find(s => s.id === r.source_id);
-            return {
-              ...r,
-              source_name: src?.name || '',
-              // Use item's category if present, else fall back to source category
-              category: r.category || src?.category || ''
-            };
-          });
-          
-          console.log(`[DEBUG JOIN] after map: ${results.length}`);
-
-          // Filter by source_id if present (always first param if exists)
-          const hasSourceIdFilter = sql.includes('r.source_id = ?');
-          const hasCategoryFilter = sql.includes('s.category = ?');
-          const hasSearchFilter = sql.includes('title LIKE ?');
-          
-          let paramIdx = 0;
-          
-          if (hasSourceIdFilter && params[paramIdx] !== undefined && params[paramIdx] !== null) {
-            const sid = Number(params[paramIdx]);
-            if (!isNaN(sid)) {
-              results = results.filter(r => r.source_id === sid);
-              console.log(`[DEBUG JOIN] after source_id filter (${sid}): ${results.length}`);
-            }
-          }
-          paramIdx++;
-          
-          if (hasCategoryFilter && params[paramIdx] !== undefined && params[paramIdx] !== null) {
-            const cat = String(params[paramIdx]);
-            if (cat) {
-              results = results.filter(r => r.category === cat);
-              console.log(`[DEBUG JOIN] after category filter (${cat}): ${results.length}`);
-            }
-          }
-          paramIdx++;
-          
-          if (hasSearchFilter && params[paramIdx] !== undefined && params[paramIdx] !== null) {
-            const search = String(params[paramIdx]).replace(/%/g, '');
-            if (search) {
-              results = results.filter(r => r.title.toLowerCase().includes(search.toLowerCase()));
-              console.log(`[DEBUG JOIN] after search filter (${search}): ${results.length}`);
-            }
-          }
-
-          // Apply sorting
-          const sortMatch = sql.match(/ORDER BY r\.(\w+)\s+(ASC|DESC)/i);
-          if (sortMatch) {
-            const col = sortMatch[1] as keyof typeof results[0];
-            const asc = sortMatch[2].toLowerCase() === 'asc';
-            results.sort((a, b) => {
-              const aVal = a[col];
-              const bVal = b[col];
-              if (aVal == null && bVal == null) return 0;
-              if (aVal == null) return asc ? 1 : -1;
-              if (bVal == null) return asc ? -1 : 1;
-              if (typeof aVal === 'string' && typeof bVal === 'string') {
-                return asc ? aVal.localeCompare(bVal) : bVal.localeCompare(aVal);
-              }
-              return asc ? Number(aVal) - Number(bVal) : Number(bVal) - Number(aVal);
+          if (sql.includes('JOIN sources s')) {
+            let results = this.resources.map(r => {
+              const src = this.sources.find(s => s.id === r.source_id);
+              return {
+                ...r,
+                source_name: src?.name || '',
+                category: r.category || src?.category || ''
+              };
             });
-          }
 
-          // Apply LIMIT and OFFSET - they are ALWAYS the last two params
-          if (params.length >= 2) {
-            const limit = Number(params[params.length - 2]);
-            const offset = Number(params[params.length - 1]);
-            console.log(`[DEBUG JOIN] slice(${offset}, ${offset + limit}) from ${results.length}`);
-            if (!isNaN(limit) && !isNaN(offset)) {
-              results = results.slice(offset, offset + limit);
+            const hasSourceIdFilter = sql.includes('r.source_id = ?');
+            const hasCategoryFilter = sql.includes('s.category = ?');
+            const hasSearchFilter = sql.includes('title LIKE ?');
+
+            let paramIdx = 0;
+
+            if (hasSourceIdFilter && params[paramIdx] !== undefined && params[paramIdx] !== null) {
+              const sid = Number(params[paramIdx]);
+              if (!isNaN(sid)) {
+                results = results.filter(r => r.source_id === sid);
+              }
             }
+            paramIdx++;
+
+            if (hasCategoryFilter && params[paramIdx] !== undefined && params[paramIdx] !== null) {
+              const cat = String(params[paramIdx]);
+              if (cat) {
+                results = results.filter(r => r.category === cat);
+              }
+            }
+            paramIdx++;
+
+            if (hasSearchFilter && params[paramIdx] !== undefined && params[paramIdx] !== null) {
+              const search = String(params[paramIdx]).replace(/%/g, '');
+              if (search) {
+                results = results.filter(r => r.title.toLowerCase().includes(search.toLowerCase()));
+              }
+            }
+
+            const sortMatch = sql.match(/ORDER BY r\.(\w+)\s+(ASC|DESC)/i);
+            if (sortMatch) {
+              const col = sortMatch[1] as keyof typeof results[0];
+              const asc = sortMatch[2].toLowerCase() === 'asc';
+              results.sort((a, b) => {
+                const aVal = a[col];
+                const bVal = b[col];
+                if (aVal == null && bVal == null) return 0;
+                if (aVal == null) return asc ? 1 : -1;
+                if (bVal == null) return asc ? -1 : 1;
+                if (typeof aVal === 'string' && typeof bVal === 'string') {
+                  return asc ? aVal.localeCompare(bVal) : bVal.localeCompare(aVal);
+                }
+                return asc ? Number(aVal) - Number(bVal) : Number(bVal) - Number(aVal);
+              });
+            }
+
+            if (params.length >= 2) {
+              const limit = Number(params[params.length - 2]);
+              const offset = Number(params[params.length - 1]);
+              if (!isNaN(limit) && !isNaN(offset)) {
+                results = results.slice(offset, offset + limit);
+              }
+            }
+            return results;
           }
-          
-          console.log(`[DEBUG JOIN] returning ${results.length} results`);
-          return results;
+        } else if (sql.includes('SELECT * FROM sources')) {
+          return this.sources;
         } else if (sql.includes('SELECT * FROM resources')) {
           return this.resources;
         } else if (sql.includes('SELECT * FROM settings')) {
@@ -300,40 +367,18 @@ class InMemoryDB {
           const id = params[0];
           return this.getResource(id);
         } else if (sql.includes('SELECT id FROM resources WHERE source_id = ? AND (guid = ? OR link = ?)')) {
-          // Handle resource existence check
           const [sourceId, guid, link] = params;
-          const existing = this.resources.find(r => 
+          const existing = this.resources.find(r =>
             r.source_id === sourceId && (r.guid === guid || r.link === link)
           );
           return existing ? { id: existing.id } : null;
         } else if (sql.includes('SELECT COUNT(*) as total')) {
-          // Handle COUNT queries
           if (sql.includes('FROM resources')) {
             let filteredResources = this.resources;
-            // Apply filters if present
-            if (sql.includes('WHERE')) {
-              // Simple filtering based on source_id or category
-              if (sql.includes('source_id =')) {
-                const sourceId = params.find(p => typeof p === 'number');
-                if (sourceId) {
-                  filteredResources = filteredResources.filter(r => r.source_id === sourceId);
-                }
-              }
-              if (sql.includes('category =')) {
-                const category = params.find(p => typeof p === 'string');
-                if (category) {
-                  filteredResources = filteredResources.filter(r => {
-                    const source = this.sources.find(s => s.id === r.source_id);
-                    return source?.category === category;
-                  });
-                }
-              }
-              if (sql.includes('title LIKE')) {
-                const search = params.find(p => typeof p === 'string' && p.includes('%'));
-                if (search) {
-                  const searchTerm = search.replace(/%/g, '');
-                  filteredResources = filteredResources.filter(r => r.title.includes(searchTerm));
-                }
+            if (sql.includes('source_id =')) {
+              const sourceId = params.find(p => typeof p === 'number');
+              if (sourceId) {
+                filteredResources = filteredResources.filter(r => r.source_id === sourceId);
               }
             }
             return { total: filteredResources.length };
@@ -342,25 +387,19 @@ class InMemoryDB {
           }
           return { total: 0 };
         } else if (sql.includes('SELECT COUNT(*) as count')) {
-          // Handle COUNT queries with count alias
           if (sql.includes('FROM sources')) {
             return { count: this.sources.length };
           } else if (sql.includes('FROM resources')) {
-            // Check if there's a WHERE clause
-            if (sql.includes('WHERE')) {
-              // For today count, we need to filter
-              if (sql.includes('created_at >=')) {
-                const dateStr = params[0];
-                if (dateStr) {
-                  const date = new Date(dateStr);
-                  const filtered = this.resources.filter(r => {
-                    const created = new Date(r.created_at);
-                    return created >= date;
-                  });
-                  return { count: filtered.length };
-                }
+            if (sql.includes('created_at >=')) {
+              const dateStr = params[0];
+              if (dateStr) {
+                const date = new Date(dateStr);
+                const filtered = this.resources.filter(r => {
+                  const created = new Date(r.created_at);
+                  return created >= date;
+                });
+                return { count: filtered.length };
               }
-              return { count: this.resources.length };
             }
             return { count: this.resources.length };
           }
@@ -374,7 +413,6 @@ class InMemoryDB {
           this.addSource({ name, url, category, fetch_interval, enabled });
           return { lastInsertRowid: this.sourceIdCounter - 1 };
         } else if (sql.includes('INSERT INTO settings')) {
-          // Handle INSERT INTO settings with ON CONFLICT (upsert)
           const [key, value] = params;
           const existingIndex = this.settings.findIndex(s => s.key === key);
           if (existingIndex >= 0) {
@@ -410,9 +448,7 @@ class InMemoryDB {
   }
 
   // Pragma method for compatibility
-  pragma(sql: string): void {
-    // No-op for in-memory implementation
-  }
+  pragma(sql: string): void {}
 
   // Load data from file
   private loadData(): void {
@@ -423,8 +459,12 @@ class InMemoryDB {
         this.sources = state.sources || [];
         this.resources = state.resources || [];
         this.settings = state.settings || [];
+        this.searchSnapshots = state.searchSnapshots || [];
+        this.fetchHistories = state.fetchHistories || [];
         this.sourceIdCounter = state.sourceIdCounter || 1;
         this.resourceIdCounter = state.resourceIdCounter || 1;
+        this.snapshotIdCounter = state.snapshotIdCounter || 1;
+        this.fetchHistoryIdCounter = state.fetchHistoryIdCounter || 1;
         console.log(`Loaded data from ${this.dbPath}`);
       }
     } catch (error) {
@@ -439,8 +479,12 @@ class InMemoryDB {
         sources: this.sources,
         resources: this.resources,
         settings: this.settings,
+        searchSnapshots: this.searchSnapshots,
+        fetchHistories: this.fetchHistories,
         sourceIdCounter: this.sourceIdCounter,
         resourceIdCounter: this.resourceIdCounter,
+        snapshotIdCounter: this.snapshotIdCounter,
+        fetchHistoryIdCounter: this.fetchHistoryIdCounter,
       };
       writeFileSync(this.dbPath, JSON.stringify(state, null, 2));
     } catch (error) {

@@ -5,9 +5,11 @@ import { serveStatic } from '@hono/node-server/serve-static';
 import cron from 'node-cron';
 import { readFileSync, existsSync } from 'fs';
 import { resolve, join } from 'path';
-import rss from './routes/rss.js';
+import sources from './routes/sources.js';
 import resource from './routes/resource.js';
 import settings from './routes/settings.js';
+import snapshots from './routes/snapshots.js';
+import fetchlog from './routes/fetchlog.js';
 import { fetchAllSources } from './services/fetcher.js';
 import db from './db.js';
 
@@ -32,9 +34,11 @@ if (existsSync(frontendDistPath)) {
 }
 
 // API Routes
-app.route('/api/sources', rss);
+app.route('/api/sources', sources);
 app.route('/api/resources', resource);
 app.route('/api/settings', settings);
+app.route('/api/snapshots', snapshots);
+app.route('/api/fetchlog', fetchlog);
 
 // Health check
 app.get('/api/health', (c) => c.json({ status: 'ok' }));

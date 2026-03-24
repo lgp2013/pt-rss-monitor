@@ -8,6 +8,9 @@ const route = useRoute();
 const navItems = [
   { path: '/', name: 'Dashboard', label: '资源列表' },
   { path: '/sources', name: 'Sources', label: 'RSS 源' },
+  { path: '/search', name: 'Search', label: '搜索' },
+  { path: '/sites', name: 'Sites', label: '站点设置' },
+  { path: '/mydata', name: 'MyData', label: '我的数据' },
   { path: '/settings', name: 'Settings', label: '设置' },
 ];
 </script>
