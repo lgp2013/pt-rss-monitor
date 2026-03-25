@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>PT Cookie Sync</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body class="popup-body">
+    <main class="panel">
+      <h1>PT Cookie Sync</h1>
+      <p class="muted">同步当前标签页站点的 Cookie 到 PT RSS Monitor。</p>
+
+      <div id="status" class="status">等待同步</div>
+
+      <button id="syncBtn" class="primary-button">同步当前站点</button>
+      <button id="openOptionsBtn" class="secondary-button">打开设置</button>
+
+      <section class="last-sync">
+        <h2>最近一次同步</h2>
+        <pre id="lastSync">暂无记录</pre>
+      </section>
+    </main>
+    <script type="module" src="popup.js"></script>
+  </body>
+  </html>

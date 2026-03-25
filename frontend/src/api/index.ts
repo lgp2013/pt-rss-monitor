@@ -66,6 +66,9 @@ export interface Site {
   enabled: number;
   created_at: string;
   cookie?: string;
+  cookies?: Record<string, string>;
+  cookie_updated_at?: string | null;
+  cookie_sync_mode?: string | null;
   groups?: string[];
   is_offline?: number;
   allow_search?: number;
@@ -321,5 +324,22 @@ export const settingsApi = {
   deleteCategory: (name: string) =>
     fetchJson<{ success: boolean; categories: string[] }>(`/settings/categories/${encodeURIComponent(name)}`, {
       method: 'DELETE',
+    }),
+
+  getExtensionSync: () =>
+    fetchJson<{
+      sync_key: string;
+      endpoint_path: string;
+      health_path: string;
+    }>('/settings/extension-sync'),
+
+  regenerateExtensionSync: () =>
+    fetchJson<{
+      success: boolean;
+      sync_key: string;
+      endpoint_path: string;
+      health_path: string;
+    }>('/settings/extension-sync/regenerate', {
+      method: 'POST',
     }),
 };

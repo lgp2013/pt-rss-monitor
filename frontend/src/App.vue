@@ -30,7 +30,7 @@ async function handleLogout() {
   try {
     await authApi.logout();
   } catch {
-    // ignore logout request errors
+    // Ignore logout request failures and clear the local session anyway.
   }
   clearAuthSession();
   currentUser.value = null;

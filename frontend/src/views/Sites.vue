@@ -2,309 +2,433 @@
 import { computed, onMounted, ref } from 'vue';
 import { sitesApi, type Site } from '../api';
 
-const loading = ref(false);
+interface SiteFormState {
+  name: string;
+  custom_name: string;
+  site_url: string;
+  category: string;
+  groups: string;
+  cookie: string;
+  passkey: string;
+  timezone_offset: string;
+  download_link_appendix: string;
+  request_timeout: number;
+  download_interval: number;
+  upload_speed_limit: number;
+  enabled: boolean;
+  is_offline: boolean;
+  allow_search: boolean;
+  allow_query_user_info: boolean;
+  allow_content_script: boolean;
+}
+
+const loading = ref(true);
 const saving = ref(false);
-const creating = ref(false);
+const deletingId = ref<number | null>(null);
+const togglingId = ref<number | null>(null);
+const pageError = ref('');
+const successMessage = ref('');
+const errorMessage = ref('');
+
 const sites = ref<Site[]>([]);
 const search = ref('');
-const showEditModal = ref(false);
-const showAddModal = ref(false);
-const activeSource = ref<Site | null>(null);
-const toDelete = ref<Site | null>(null);
+const categoryFilter = ref('');
+const editingSite = ref<Site | null>(null);
+const showModal = ref(false);
 
-const addForm = ref({
-  name: '',
-  site_url: '',
-  category: '其他',
-});
+const form = ref<SiteFormState>(createEmptyForm());
 
-const form = ref({
-  custom_name: '',
-  groups: '',
-  cookie: '',
-  passkey: '',
-  timezone_offset: '+0800',
-  request_timeout: 30000,
-  download_interval: 0,
-  upload_speed_limit: 0,
-  download_link_appendix: '',
-  enabled: true,
-  is_offline: false,
-  allow_search: true,
-  allow_query_user_info: true,
-  allow_content_script: true,
-});
+function createEmptyForm(): SiteFormState {
+  return {
+    name: '',
+    custom_name: '',
+    site_url: '',
+    category: '',
+    groups: '',
+    cookie: '',
+    passkey: '',
+    timezone_offset: '+0800',
+    download_link_appendix: '',
+    request_timeout: 30000,
+    download_interval: 0,
+    upload_speed_limit: 0,
+    enabled: true,
+    is_offline: false,
+    allow_search: true,
+    allow_query_user_info: true,
+    allow_content_script: true,
+  };
+}
 
-const filteredSources = computed(() => {
+function resetMessages() {
+  successMessage.value = '';
+  errorMessage.value = '';
+}
+
+function showSuccess(message: string) {
+  successMessage.value = message;
+  errorMessage.value = '';
+}
+
+function showError(message: string) {
+  errorMessage.value = message;
+  successMessage.value = '';
+}
+
+const categoryOptions = computed(() =>
+  Array.from(new Set(sites.value.map(site => site.category).filter(Boolean))).sort((a, b) => a.localeCompare(b)),
+);
+
+const filteredSites = computed(() => {
   const keyword = search.value.trim().toLowerCase();
-  return sites.value.filter(source => {
-    if (!keyword) return true;
-    return [source.custom_name, source.name, source.site_url, source.category, ...(source.groups || [])]
-      .filter(Boolean)
-      .some(value => String(value).toLowerCase().includes(keyword));
+  return sites.value.filter((site) => {
+    const matchesSearch =
+      !keyword ||
+      [site.name, site.custom_name, site.site_url, site.category]
+        .filter(Boolean)
+        .some((value) => String(value).toLowerCase().includes(keyword));
+
+    const matchesCategory = !categoryFilter.value || site.category === categoryFilter.value;
+    return matchesSearch && matchesCategory;
   });
 });
 
-const summary = computed(() => ({
-  total: sites.value.length,
-  enabled: sites.value.filter(item => item.enabled === 1).length,
-  offline: sites.value.filter(item => item.is_offline === 1).length,
-  userInfo: sites.value.filter(item => item.allow_query_user_info === 1).length,
-}));
+const stats = computed(() => {
+  const total = sites.value.length;
+  const enabled = sites.value.filter(site => Number(site.enabled) === 1).length;
+  const offline = sites.value.filter(site => Number(site.is_offline) === 1).length;
+  const synced = sites.value.filter(site => !!site.cookie_updated_at).length;
+  return { total, enabled, offline, synced };
+});
 
-async function loadSources() {
-  loading.value = true;
-  try {
-    sites.value = await sitesApi.list();
-  } finally {
-    loading.value = false;
-  }
-}
-
-async function createSite() {
-  if (!addForm.value.name.trim() || !addForm.value.site_url.trim()) {
-    alert('请填写站点名称和网站地址');
+function fillForm(site?: Site) {
+  if (!site) {
+    form.value = createEmptyForm();
     return;
   }
-  creating.value = true;
-  try {
-    await sitesApi.create({
-      name: addForm.value.name.trim(),
-      site_url: addForm.value.site_url.trim(),
-      category: addForm.value.category.trim() || '其他',
-      enabled: false,
-      allow_search: true,
-      allow_query_user_info: true,
-      allow_content_script: true,
-    });
-    addForm.value = { name: '', site_url: '', category: '其他' };
-    showAddModal.value = false;
-    await loadSources();
-  } finally {
-    creating.value = false;
-  }
-}
 
-function openEdit(source: Site) {
-  activeSource.value = source;
   form.value = {
-    custom_name: source.custom_name || '',
-    groups: (source.groups || []).join(', '),
-    cookie: source.cookie || '',
-    passkey: source.passkey || '',
-    timezone_offset: source.timezone_offset || '+0800',
-    request_timeout: source.request_timeout ?? 30000,
-    download_interval: source.download_interval ?? 0,
-    upload_speed_limit: source.upload_speed_limit ?? 0,
-    download_link_appendix: source.download_link_appendix || '',
-    enabled: source.enabled === 1,
-    is_offline: source.is_offline === 1,
-    allow_search: source.allow_search !== 0,
-    allow_query_user_info: source.allow_query_user_info !== 0,
-    allow_content_script: source.allow_content_script !== 0,
+    name: site.name || '',
+    custom_name: site.custom_name || '',
+    site_url: site.site_url || '',
+    category: site.category || '',
+    groups: (site.groups || []).join(', '),
+    cookie: site.cookie || '',
+    passkey: site.passkey || '',
+    timezone_offset: site.timezone_offset || '+0800',
+    download_link_appendix: site.download_link_appendix || '',
+    request_timeout: site.request_timeout ?? 30000,
+    download_interval: site.download_interval ?? 0,
+    upload_speed_limit: site.upload_speed_limit ?? 0,
+    enabled: Number(site.enabled) === 1,
+    is_offline: Number(site.is_offline) === 1,
+    allow_search: Number(site.allow_search ?? 1) === 1,
+    allow_query_user_info: Number(site.allow_query_user_info ?? 1) === 1,
+    allow_content_script: Number(site.allow_content_script ?? 1) === 1,
   };
-  showEditModal.value = true;
 }
 
-async function saveSiteSettings() {
-  if (!activeSource.value) return;
+async function loadSitesPage() {
+  loading.value = true;
+  pageError.value = '';
+  try {
+    sites.value = await sitesApi.list();
+  } catch (error) {
+    pageError.value = error instanceof Error ? error.message : '站点设置页面加载失败。';
+  }
+
+  loading.value = false;
+}
+
+function openCreateModal() {
+  resetMessages();
+  editingSite.value = null;
+  fillForm();
+  showModal.value = true;
+}
+
+function openEditModal(site: Site) {
+  resetMessages();
+  editingSite.value = site;
+  fillForm(site);
+  showModal.value = true;
+}
+
+function closeModal() {
+  showModal.value = false;
+  editingSite.value = null;
+  fillForm();
+}
+
+function buildPayload() {
+  return {
+    name: form.value.name.trim(),
+    custom_name: form.value.custom_name.trim() || null,
+    site_url: form.value.site_url.trim(),
+    category: form.value.category.trim(),
+    groups: form.value.groups
+      .split(',')
+      .map(item => item.trim())
+      .filter(Boolean),
+    cookie: form.value.cookie.trim(),
+    passkey: form.value.passkey.trim() || null,
+    timezone_offset: form.value.timezone_offset.trim() || null,
+    download_link_appendix: form.value.download_link_appendix.trim() || null,
+    request_timeout: Number(form.value.request_timeout || 30000),
+    download_interval: Number(form.value.download_interval || 0),
+    upload_speed_limit: Number(form.value.upload_speed_limit || 0),
+    enabled: form.value.enabled,
+    is_offline: form.value.is_offline,
+    allow_search: form.value.allow_search,
+    allow_query_user_info: form.value.allow_query_user_info,
+    allow_content_script: form.value.allow_content_script,
+  };
+}
+
+async function saveSite() {
+  const payload = buildPayload();
+  if (!payload.name || !payload.site_url) {
+    showError('站点名称和网站地址不能为空。');
+    return;
+  }
+
+  resetMessages();
   saving.value = true;
   try {
-    await sitesApi.update(activeSource.value.id, {
-      custom_name: form.value.custom_name || null,
-      groups: form.value.groups
-        .split(',')
-        .map(item => item.trim())
-        .filter(Boolean),
-      cookie: form.value.cookie || '',
-      passkey: form.value.passkey || null,
-      timezone_offset: form.value.timezone_offset,
-      request_timeout: form.value.request_timeout,
-      download_interval: form.value.download_interval,
-      upload_speed_limit: form.value.upload_speed_limit,
-      download_link_appendix: form.value.download_link_appendix || null,
-      enabled: form.value.enabled,
-      is_offline: form.value.is_offline,
-      allow_search: form.value.allow_search,
-      allow_query_user_info: form.value.allow_query_user_info,
-      allow_content_script: form.value.allow_content_script,
-    });
-    showEditModal.value = false;
-    await loadSources();
+    if (editingSite.value) {
+      await sitesApi.update(editingSite.value.id, payload);
+      showSuccess(`已更新站点 ${payload.name}。`);
+    } else {
+      await sitesApi.create(payload);
+      showSuccess(`已添加站点 ${payload.name}。`);
+    }
+    await loadSitesPage();
+    closeModal();
+  } catch (error) {
+    showError(error instanceof Error ? error.message : '保存站点失败。');
   } finally {
     saving.value = false;
   }
 }
 
-async function quickToggle(source: Site, key: keyof Site, checked: boolean) {
-  await sitesApi.update(source.id, { [key]: checked } as Partial<Site>);
-  await loadSources();
+async function deleteSite(site: Site) {
+  resetMessages();
+  deletingId.value = site.id;
+  try {
+    await sitesApi.delete(site.id);
+    await loadSitesPage();
+    showSuccess(`已删除站点 ${site.custom_name || site.name}。`);
+  } catch (error) {
+    showError(error instanceof Error ? error.message : '删除站点失败。');
+  } finally {
+    deletingId.value = null;
+  }
 }
 
-async function deleteSite() {
-  if (!toDelete.value) return;
-  await sitesApi.delete(toDelete.value.id);
-  toDelete.value = null;
-  await loadSources();
+async function toggleSite(site: Site, field: 'enabled' | 'is_offline' | 'allow_search' | 'allow_query_user_info' | 'allow_content_script') {
+  resetMessages();
+  togglingId.value = site.id;
+  try {
+    const nextValue = Number((site as Record<string, unknown>)[field] ?? 0) !== 1;
+    await sitesApi.update(site.id, { [field]: nextValue });
+    await loadSitesPage();
+  } catch (error) {
+    showError(error instanceof Error ? error.message : '更新站点开关失败。');
+  } finally {
+    togglingId.value = null;
+  }
 }
 
-onMounted(loadSources);
+function formatDate(value: string | null | undefined) {
+  if (!value) return '-';
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? '-' : date.toLocaleString();
+}
+
+onMounted(loadSitesPage);
 </script>
 
 <template>
-  <div class="site-settings-page">
+  <div class="sites-page">
     <div class="page-header">
       <div>
         <h1 class="page-title">站点设置</h1>
-        <p class="page-subtitle">管理站点行为、鉴权信息和用户信息相关开关。</p>
+        <p class="page-subtitle">站点配置与 RSS 源完全分离，我的数据页面只读取这里的站点信息。</p>
       </div>
       <div class="header-actions">
-        <button class="btn btn-primary" @click="showAddModal = true">添加站点</button>
-        <button class="btn" @click="loadSources">刷新</button>
+        <button class="btn" type="button" @click="loadSitesPage">刷新</button>
+        <button class="btn btn-primary" type="button" @click="openCreateModal">添加站点</button>
       </div>
     </div>
 
-    <div class="stats-grid">
-      <div class="stat-card">
-        <div class="stat-label">总站点</div>
-        <div class="stat-value">{{ summary.total }}</div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-label">启用抓取</div>
-        <div class="stat-value">{{ summary.enabled }}</div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-label">离线模式</div>
-        <div class="stat-value">{{ summary.offline }}</div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-label">允许用户数据</div>
-        <div class="stat-value">{{ summary.userInfo }}</div>
-      </div>
-    </div>
-
-    <div class="card toolbar">
-      <input v-model="search" class="input search-input" placeholder="搜索站点、URL、分组" />
-    </div>
+    <div v-if="successMessage" class="message success-message">{{ successMessage }}</div>
+    <div v-if="errorMessage" class="message error-message">{{ errorMessage }}</div>
+    <div v-if="pageError" class="message warning-message">{{ pageError }}</div>
 
     <div v-if="loading" class="loading"><div class="spinner"></div></div>
 
-    <div v-else class="site-list">
-      <div v-for="source in filteredSources" :key="source.id" class="card site-card">
-        <div class="site-head">
-          <div>
-            <h3 class="site-title">{{ source.custom_name || source.name }}</h3>
-            <div class="site-url">{{ source.site_url || '未配置网站地址' }}</div>
-          </div>
-          <div class="site-actions">
-            <button class="btn btn-small" @click="openEdit(source)">详细设置</button>
-            <button class="btn btn-small btn-danger" @click="toDelete = source">删除站点</button>
-          </div>
+    <template v-else>
+      <div class="stats-grid">
+        <div class="stat-card">
+          <div class="stat-label">站点总数</div>
+          <div class="stat-value">{{ stats.total }}</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">启用站点</div>
+          <div class="stat-value">{{ stats.enabled }}</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">已同步 Cookie</div>
+          <div class="stat-value">{{ stats.synced }}</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">离线模式</div>
+          <div class="stat-value">{{ stats.offline }}</div>
+        </div>
+      </div>
+
+      <section class="card section-card">
+        <div class="toolbar">
+          <input v-model="search" class="input search-input" type="text" placeholder="按站点名称、自定义名称、网址或分类搜索" />
+          <select v-model="categoryFilter" class="select category-select">
+            <option value="">全部分类</option>
+            <option v-for="category in categoryOptions" :key="category" :value="category">{{ category }}</option>
+          </select>
         </div>
 
-        <div class="site-meta">
-          <span class="tag">{{ source.category || '未分类' }}</span>
-          <span v-for="group in source.groups || []" :key="group" class="tag secondary">{{ group }}</span>
+        <div v-if="filteredSites.length" class="site-list">
+          <article v-for="site in filteredSites" :key="site.id" class="site-card">
+            <div class="site-top">
+              <div class="site-identity">
+                <h3>{{ site.custom_name || site.name }}</h3>
+                <p class="muted-text">{{ site.site_url }}</p>
+              </div>
+              <div class="site-actions">
+                <button class="btn btn-sm" type="button" @click="openEditModal(site)">编辑</button>
+                <button class="btn btn-sm btn-danger" type="button" :disabled="deletingId === site.id" @click="deleteSite(site)">
+                  {{ deletingId === site.id ? '删除中...' : '删除' }}
+                </button>
+              </div>
+            </div>
+
+            <div class="meta-grid">
+              <div class="meta-item">
+                <span class="meta-label">分类</span>
+                <strong>{{ site.category || '未分类' }}</strong>
+              </div>
+              <div class="meta-item">
+                <span class="meta-label">分组</span>
+                <strong>{{ (site.groups || []).join(', ') || '-' }}</strong>
+              </div>
+              <div class="meta-item">
+                <span class="meta-label">Cookie 更新时间</span>
+                <strong>{{ formatDate(site.cookie_updated_at) }}</strong>
+              </div>
+              <div class="meta-item">
+                <span class="meta-label">同步方式</span>
+                <strong>{{ site.cookie_sync_mode || '-' }}</strong>
+              </div>
+            </div>
+
+            <div class="switch-grid">
+              <button class="switch-chip" type="button" :disabled="togglingId === site.id" @click="toggleSite(site, 'enabled')">
+                <span>启用站点</span>
+                <strong>{{ Number(site.enabled) === 1 ? '开启' : '关闭' }}</strong>
+              </button>
+              <button class="switch-chip" type="button" :disabled="togglingId === site.id" @click="toggleSite(site, 'is_offline')">
+                <span>离线模式</span>
+                <strong>{{ Number(site.is_offline) === 1 ? '开启' : '关闭' }}</strong>
+              </button>
+              <button class="switch-chip" type="button" :disabled="togglingId === site.id" @click="toggleSite(site, 'allow_search')">
+                <span>允许搜索</span>
+                <strong>{{ Number(site.allow_search ?? 1) === 1 ? '开启' : '关闭' }}</strong>
+              </button>
+              <button class="switch-chip" type="button" :disabled="togglingId === site.id" @click="toggleSite(site, 'allow_query_user_info')">
+                <span>允许用户数据</span>
+                <strong>{{ Number(site.allow_query_user_info ?? 1) === 1 ? '开启' : '关闭' }}</strong>
+              </button>
+              <button class="switch-chip" type="button" :disabled="togglingId === site.id" @click="toggleSite(site, 'allow_content_script')">
+                <span>允许内容脚本</span>
+                <strong>{{ Number(site.allow_content_script ?? 1) === 1 ? '开启' : '关闭' }}</strong>
+              </button>
+            </div>
+          </article>
+        </div>
+        <div v-else class="empty-block">当前筛选条件下没有匹配的站点。</div>
+      </section>
+    </template>
+
+    <div v-if="showModal" class="modal-overlay" @click.self="closeModal">
+      <div class="modal site-modal">
+        <div class="modal-header">
+          <h2 class="modal-title">{{ editingSite ? '编辑站点' : '添加站点' }}</h2>
+          <button class="modal-close" type="button" @click="closeModal">&times;</button>
+        </div>
+
+        <div class="form-grid">
+          <div class="form-group">
+            <label class="form-label" for="site-name">站点名称</label>
+            <input id="site-name" v-model="form.name" class="input" type="text" />
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="site-custom-name">自定义显示名称</label>
+            <input id="site-custom-name" v-model="form.custom_name" class="input" type="text" />
+          </div>
+          <div class="form-group full-width">
+            <label class="form-label" for="site-url">网站地址</label>
+            <input id="site-url" v-model="form.site_url" class="input" type="url" placeholder="https://example.com" />
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="site-category">分类</label>
+            <input id="site-category" v-model="form.category" class="input" type="text" />
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="site-groups">分组</label>
+            <input id="site-groups" v-model="form.groups" class="input" type="text" placeholder="movie, tv" />
+          </div>
+          <div class="form-group full-width">
+            <label class="form-label" for="site-cookie">Cookie</label>
+            <textarea id="site-cookie" v-model="form.cookie" class="textarea" rows="4"></textarea>
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="site-passkey">Passkey</label>
+            <input id="site-passkey" v-model="form.passkey" class="input" type="text" />
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="site-timezone">时区偏移</label>
+            <input id="site-timezone" v-model="form.timezone_offset" class="input" type="text" placeholder="+0800" />
+          </div>
+          <div class="form-group full-width">
+            <label class="form-label" for="site-download-appendix">下载链接附加参数</label>
+            <input id="site-download-appendix" v-model="form.download_link_appendix" class="input" type="text" />
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="site-timeout">请求超时（毫秒）</label>
+            <input id="site-timeout" v-model.number="form.request_timeout" class="input" type="number" min="1000" step="1000" />
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="site-download-interval">下载间隔（毫秒）</label>
+            <input id="site-download-interval" v-model.number="form.download_interval" class="input" type="number" min="0" />
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="site-upload-limit">上传限速</label>
+            <input id="site-upload-limit" v-model.number="form.upload_speed_limit" class="input" type="number" min="0" />
+          </div>
         </div>
 
         <div class="toggle-grid">
-          <label class="toggle-item">
-            <span>启用抓取</span>
-            <input :checked="source.enabled === 1" type="checkbox" @change="quickToggle(source, 'enabled', ($event.target as HTMLInputElement).checked)" />
-          </label>
-          <label class="toggle-item">
-            <span>离线模式</span>
-            <input :checked="source.is_offline === 1" type="checkbox" @change="quickToggle(source, 'is_offline', ($event.target as HTMLInputElement).checked)" />
-          </label>
-          <label class="toggle-item">
-            <span>允许搜索</span>
-            <input :checked="source.allow_search !== 0" type="checkbox" @change="quickToggle(source, 'allow_search', ($event.target as HTMLInputElement).checked)" />
-          </label>
-          <label class="toggle-item">
-            <span>允许用户数据</span>
-            <input :checked="source.allow_query_user_info !== 0" type="checkbox" @change="quickToggle(source, 'allow_query_user_info', ($event.target as HTMLInputElement).checked)" />
-          </label>
-          <label class="toggle-item">
-            <span>允许内容脚本</span>
-            <input :checked="source.allow_content_script !== 0" type="checkbox" @change="quickToggle(source, 'allow_content_script', ($event.target as HTMLInputElement).checked)" />
-          </label>
+          <label class="toggle-item"><input v-model="form.enabled" type="checkbox" /> 启用站点</label>
+          <label class="toggle-item"><input v-model="form.is_offline" type="checkbox" /> 离线模式</label>
+          <label class="toggle-item"><input v-model="form.allow_search" type="checkbox" /> 允许搜索</label>
+          <label class="toggle-item"><input v-model="form.allow_query_user_info" type="checkbox" /> 允许用户数据</label>
+          <label class="toggle-item"><input v-model="form.allow_content_script" type="checkbox" /> 允许内容脚本</label>
         </div>
 
-        <div class="config-grid">
-          <div><strong>时区</strong><span>{{ source.timezone_offset || '+0800' }}</span></div>
-          <div><strong>请求超时</strong><span>{{ source.request_timeout ?? 30000 }} ms</span></div>
-          <div><strong>下载间隔</strong><span>{{ source.download_interval ?? 0 }} s</span></div>
-          <div><strong>上传限速</strong><span>{{ source.upload_speed_limit ?? 0 }} MiB/s</span></div>
-        </div>
-      </div>
-    </div>
-
-    <div v-if="showAddModal" class="modal-overlay" @click.self="showAddModal = false">
-      <div class="modal small-modal">
-        <div class="modal-header">
-          <h2>添加站点</h2>
-          <button class="modal-close" @click="showAddModal = false">&times;</button>
-        </div>
-        <div class="modal-grid">
-          <div class="form-group"><label>站点名称</label><input v-model="addForm.name" class="input" /></div>
-          <div class="form-group"><label>网站地址</label><input v-model="addForm.site_url" class="input" placeholder="https://example.com/" /></div>
-          <div class="form-group"><label>分类</label><input v-model="addForm.category" class="input" /></div>
-        </div>
         <div class="modal-footer">
-          <button class="btn" @click="showAddModal = false">取消</button>
-          <button class="btn btn-primary" :disabled="creating" @click="createSite">
-            {{ creating ? '创建中...' : '完成' }}
+          <button class="btn" type="button" @click="closeModal">取消</button>
+          <button class="btn btn-primary" type="button" :disabled="saving" @click="saveSite">
+            {{ saving ? '保存中...' : '保存站点' }}
           </button>
-        </div>
-      </div>
-    </div>
-
-    <div v-if="showEditModal && activeSource" class="modal-overlay" @click.self="showEditModal = false">
-      <div class="modal">
-        <div class="modal-header">
-          <h2>{{ activeSource.name }} - 站点设置</h2>
-          <button class="modal-close" @click="showEditModal = false">&times;</button>
-        </div>
-
-        <div class="modal-grid">
-          <div class="form-group"><label>显示名称</label><input v-model="form.custom_name" class="input" /></div>
-          <div class="form-group"><label>分组</label><input v-model="form.groups" class="input" placeholder="影视, 动漫, 音乐" /></div>
-          <div class="form-group"><label>时区</label><input v-model="form.timezone_offset" class="input" placeholder="+0800" /></div>
-          <div class="form-group"><label>Cookie</label><input v-model="form.cookie" class="input" type="password" /></div>
-          <div class="form-group"><label>Passkey</label><input v-model="form.passkey" class="input" type="password" /></div>
-          <div class="form-group"><label>下载链接附加参数</label><input v-model="form.download_link_appendix" class="input" /></div>
-          <div class="form-group"><label>请求超时(ms)</label><input v-model.number="form.request_timeout" type="number" class="input" /></div>
-          <div class="form-group"><label>下载间隔(s)</label><input v-model.number="form.download_interval" type="number" class="input" /></div>
-          <div class="form-group"><label>上传限速(MiB/s)</label><input v-model.number="form.upload_speed_limit" type="number" class="input" /></div>
-        </div>
-
-        <div class="switch-section">
-          <label><input v-model="form.enabled" type="checkbox" /> 启用抓取</label>
-          <label><input v-model="form.is_offline" type="checkbox" /> 离线模式</label>
-          <label><input v-model="form.allow_search" type="checkbox" /> 允许搜索</label>
-          <label><input v-model="form.allow_query_user_info" type="checkbox" /> 允许用户数据</label>
-          <label><input v-model="form.allow_content_script" type="checkbox" /> 允许内容脚本</label>
-        </div>
-
-        <div class="modal-footer">
-          <button class="btn" @click="showEditModal = false">取消</button>
-          <button class="btn btn-primary" :disabled="saving" @click="saveSiteSettings">
-            {{ saving ? '保存中...' : '保存设置' }}
-          </button>
-        </div>
-      </div>
-    </div>
-
-    <div v-if="toDelete" class="modal-overlay" @click.self="toDelete = null">
-      <div class="modal small-modal">
-        <div class="modal-header">
-          <h2>删除站点</h2>
-          <button class="modal-close" @click="toDelete = null">&times;</button>
-        </div>
-        <p>确认删除站点 “{{ toDelete.custom_name || toDelete.name }}”？</p>
-        <div class="modal-footer">
-          <button class="btn" @click="toDelete = null">取消</button>
-          <button class="btn btn-danger" @click="deleteSite">删除</button>
         </div>
       </div>
     </div>
@@ -312,238 +436,184 @@ onMounted(loadSources);
 </template>
 
 <style scoped>
-.site-settings-page {
-  max-width: 1280px;
-  margin: 0 auto;
+.sites-page {
+  display: grid;
+  gap: 16px;
 }
-.page-header {
+
+.page-header,
+.section-header,
+.site-top {
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
   gap: 16px;
-  margin-bottom: 20px;
 }
+
 .header-actions,
-.site-actions {
+.site-actions,
+.toolbar {
   display: flex;
-  gap: 8px;
+  gap: 12px;
+  flex-wrap: wrap;
 }
+
 .page-title {
-  font-size: 28px;
-  margin: 0 0 6px;
-}
-.page-subtitle {
+  font-size: 30px;
   margin: 0;
+}
+
+.page-subtitle,
+.section-subtitle,
+.muted-text,
+.meta-label {
   color: var(--color-text-secondary);
 }
-.stats-grid {
+
+.section-card,
+.site-card {
+  display: grid;
+  gap: 16px;
+}
+
+.site-card {
+  padding: 16px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-bg-primary);
+}
+
+.site-identity h3 {
+  margin: 0;
+  font-size: 20px;
+}
+
+.site-identity p {
+  margin: 4px 0 0;
+  word-break: break-all;
+}
+
+.search-input {
+  flex: 1;
+  min-width: 260px;
+}
+
+.category-select {
+  min-width: 200px;
+}
+
+.meta-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
   gap: 12px;
-  margin-bottom: 16px;
 }
-.stat-card,
-.card {
+
+.meta-item {
+  padding: 12px;
+  border-radius: var(--radius-md);
   background: var(--color-bg-secondary);
-  border: 1px solid var(--color-border);
-  border-radius: 12px;
-  padding: 16px;
-}
-.stat-label {
-  color: var(--color-text-secondary);
-  font-size: 13px;
-  margin-bottom: 8px;
-}
-.stat-value {
-  font-size: 24px;
-  font-weight: 700;
-}
-.toolbar {
-  margin-bottom: 16px;
-}
-.search-input {
-  width: 100%;
-}
-.site-list {
   display: grid;
-  grid-template-columns: 1fr;
-  gap: 14px;
+  gap: 4px;
 }
-.site-card {
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
+
+.switch-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 10px;
 }
-.site-head {
+
+.switch-chip {
   display: flex;
   justify-content: space-between;
+  align-items: center;
   gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-secondary);
+  color: var(--color-text-primary);
+  cursor: pointer;
 }
-.site-title {
-  margin: 0 0 4px;
-  font-size: 20px;
+
+.form-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 16px;
 }
-.site-url {
-  color: var(--color-text-secondary);
-  word-break: break-all;
-  font-size: 13px;
+
+.full-width {
+  grid-column: 1 / -1;
 }
-.site-meta {
-  display: flex;
-  gap: 8px;
-  flex-wrap: wrap;
+
+.textarea {
+  width: 100%;
+  padding: var(--spacing-sm) var(--spacing-md);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-primary);
+  color: var(--color-text-primary);
+  resize: vertical;
+  min-height: 100px;
 }
-.tag {
-  padding: 4px 10px;
-  border-radius: 999px;
-  background: rgba(37, 99, 235, 0.12);
-  color: #1d4ed8;
-  font-size: 12px;
-}
-.tag.secondary {
-  background: var(--color-bg-tertiary);
-  color: var(--color-text-secondary);
-}
+
 .toggle-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-  gap: 10px;
+  gap: 12px;
 }
+
 .toggle-item {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 10px 12px;
-  border: 1px solid var(--color-border);
-  border-radius: 10px;
-  background: var(--color-bg-primary);
-}
-.config-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-  gap: 12px;
-}
-.config-grid div {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  padding: 12px;
-  border-radius: 10px;
-  background: var(--color-bg-primary);
-}
-.config-grid span {
-  color: var(--color-text-secondary);
-}
-.modal-overlay {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.45);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 200;
-  padding: 20px;
-}
-.modal {
-  width: min(900px, 100%);
-  max-height: 90vh;
-  overflow: auto;
-  background: var(--color-bg-primary);
-  border: 1px solid var(--color-border);
-  border-radius: 16px;
-  padding: 20px;
-}
-.small-modal {
-  width: min(560px, 100%);
-}
-.modal-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 16px;
-}
-.modal-close {
-  border: none;
-  background: transparent;
-  font-size: 28px;
-  cursor: pointer;
-  color: var(--color-text-secondary);
-}
-.modal-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  gap: 12px;
-}
-.form-group {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-.switch-section {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-  gap: 10px;
-  margin-top: 16px;
-}
-.switch-section label {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 10px 12px;
-  border-radius: 10px;
-  background: var(--color-bg-secondary);
 }
-.modal-footer {
-  display: flex;
-  justify-content: flex-end;
-  gap: 10px;
-  margin-top: 18px;
+
+.site-modal {
+  width: min(960px, 96vw);
+  max-width: 960px;
 }
-.btn {
-  padding: 10px 14px;
-  border-radius: 10px;
-  border: 1px solid var(--color-border);
-  background: var(--color-bg-tertiary);
-  color: var(--color-text-primary);
-  cursor: pointer;
+
+.message {
+  padding: 12px 14px;
+  border-radius: var(--radius-md);
+  border: 1px solid transparent;
 }
-.btn-small {
-  padding: 6px 10px;
-  font-size: 12px;
+
+.success-message {
+  background: rgba(34, 197, 94, 0.1);
+  border-color: rgba(34, 197, 94, 0.25);
+  color: #15803d;
 }
-.btn-primary {
-  background: var(--color-accent);
-  color: #fff;
-  border-color: var(--color-accent);
+
+.error-message {
+  background: rgba(239, 68, 68, 0.1);
+  border-color: rgba(239, 68, 68, 0.25);
+  color: #b91c1c;
 }
-.btn-danger {
-  background: #dc2626;
-  color: #fff;
-  border-color: #dc2626;
+
+.warning-message {
+  background: rgba(245, 158, 11, 0.1);
+  border-color: rgba(245, 158, 11, 0.25);
+  color: #b45309;
 }
-.input {
-  padding: 10px 12px;
-  border: 1px solid var(--color-border);
-  border-radius: 10px;
-  background: var(--color-bg-primary);
-  color: var(--color-text-primary);
+
+.empty-block {
+  padding: 16px;
+  border: 1px dashed var(--color-border);
+  border-radius: var(--radius-md);
+  color: var(--color-text-secondary);
 }
-.loading {
-  display: flex;
-  justify-content: center;
-  padding: 48px;
-}
-.spinner {
-  width: 32px;
-  height: 32px;
-  border: 3px solid var(--color-border);
-  border-top-color: var(--color-accent);
-  border-radius: 50%;
-  animation: spin 1s linear infinite;
-}
-@keyframes spin {
-  to {
-    transform: rotate(360deg);
+
+@media (max-width: 900px) {
+  .page-header,
+  .section-header,
+  .site-top {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .category-select {
+    min-width: 0;
   }
 }
 </style>

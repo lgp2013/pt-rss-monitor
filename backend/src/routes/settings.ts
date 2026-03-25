@@ -69,6 +69,23 @@ settings.get('/categories', (c) => {
   return c.json({ categories });
 });
 
+settings.get('/extension-sync', (c) => {
+  return c.json({
+    sync_key: db.getOrCreateExtensionSyncKey(),
+    endpoint_path: '/api/extension/site-cookie-sync',
+    health_path: '/api/extension/site-cookie-sync/health',
+  });
+});
+
+settings.post('/extension-sync/regenerate', (c) => {
+  return c.json({
+    success: true,
+    sync_key: db.regenerateExtensionSyncKey(),
+    endpoint_path: '/api/extension/site-cookie-sync',
+    health_path: '/api/extension/site-cookie-sync/health',
+  });
+});
+
 settings.post('/categories', async (c) => {
   const body = await c.req.json();
   const name = String(body.name || '').trim();

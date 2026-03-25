@@ -21,6 +21,8 @@ interface Site {
   created_at: string;
   cookie?: string;
   cookies?: Record<string, string>;
+  cookie_updated_at?: string | null;
+  cookie_sync_mode?: string | null;
   groups?: string[];
   is_offline?: number;
   allow_search?: number;
@@ -137,6 +139,8 @@ const DEFAULT_SITE_VALUES = {
   request_timeout: 30000,
   download_interval: 0,
   upload_speed_limit: 0,
+  cookie_updated_at: null as string | null,
+  cookie_sync_mode: null as string | null,
 };
 
 function normalizeSite(site: Site): Site {
@@ -151,7 +155,21 @@ function normalizeSite(site: Site): Site {
     request_timeout: Number(site.request_timeout ?? 30000),
     download_interval: Number(site.download_interval ?? 0),
     upload_speed_limit: Number(site.upload_speed_limit ?? 0),
+    cookie_updated_at: site.cookie_updated_at ?? null,
+    cookie_sync_mode: site.cookie_sync_mode ?? null,
   };
+}
+
+function normalizeHostname(value: string): string {
+  return value.trim().toLowerCase().replace(/^www\./, '').replace(/\.$/, '');
+}
+
+function extractHostname(value: string): string {
+  try {
+    return normalizeHostname(new URL(value).hostname);
+  } catch {
+    return normalizeHostname(value);
+  }
 }
 
 function normalizeNumber(value: unknown, fallback = 0): number {
@@ -191,6 +209,10 @@ function normalizeResource(resource: Resource): Resource {
   };
 }
 
+function hasValidSiteId(value: unknown, sites: Site[]): value is number {
+  return typeof value === 'number' && sites.some(site => site.id === value);
+}
+
 function hashPassword(password: string): string {
   return createHash('sha256').update(password).digest('hex');
 }
@@ -227,6 +249,7 @@ class InMemoryDB {
       { key: 'auto_fetch_enabled', value: 'true' },
       { key: 'theme', value: 'system' },
       { key: 'resources_retention_days', value: '30' },
+      { key: 'extension_sync_key', value: randomBytes(24).toString('hex') },
     ];
     for (const setting of defaults) {
       if (!this.settings.some(s => s.key === setting.key)) this.settings.push(setting);
@@ -268,6 +291,18 @@ class InMemoryDB {
   getSite(id: number): Site | undefined {
     const site = this.sites.find(s => s.id === id);
     return site ? normalizeSite(site) : undefined;
+  }
+  findSiteByUrl(url: string): Site | undefined {
+    const targetHost = extractHostname(url);
+    if (!targetHost) return undefined;
+
+    const matched = this.sites.find(site => {
+      const siteHost = extractHostname(site.site_url);
+      if (!siteHost) return false;
+      return targetHost === siteHost || targetHost.endsWith(`.${siteHost}`) || siteHost.endsWith(`.${targetHost}`);
+    });
+
+    return matched ? normalizeSite(matched) : undefined;
   }
   addSite(site: Omit<Site, 'id' | 'created_at'>): Site {
     const newSite = normalizeSite({ ...site, id: this.siteIdCounter++, created_at: new Date().toISOString() });
@@ -340,6 +375,14 @@ class InMemoryDB {
     else this.settings[index].value = value;
     this.saveData();
     return this.settings.find(s => s.key === key) as Setting;
+  }
+  getOrCreateExtensionSyncKey(): string {
+    const existing = this.getSetting('extension_sync_key')?.value?.trim();
+    if (existing) return existing;
+    return this.updateSetting('extension_sync_key', randomBytes(24).toString('hex')).value;
+  }
+  regenerateExtensionSyncKey(): string {
+    return this.updateSetting('extension_sync_key', randomBytes(24).toString('hex')).value;
   }
 
   allUsers(): User[] {
@@ -689,8 +732,10 @@ class InMemoryDB {
         this.settings = state.settings || [];
         this.users = state.users || [];
         this.authSessions = state.authSessions || [];
-        this.userData = state.userData || [];
-        this.userDataHistory = state.userDataHistory || [];
+        this.userData = (state.userData || []).filter(item => hasValidSiteId((item as UserData).site_id, this.sites));
+        this.userDataHistory = (state.userDataHistory || []).filter(item =>
+          hasValidSiteId((item as UserDataHistory).site_id, this.sites),
+        );
         this.sourceIdCounter = state.sourceIdCounter || 1;
         this.siteIdCounter = state.siteIdCounter || 1;
         this.resourceIdCounter = state.resourceIdCounter || 1;

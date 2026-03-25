@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>PT Cookie Sync Settings</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <main class="page">
+      <section class="panel">
+        <h1>PT Cookie Sync 设置</h1>
+        <p class="muted">把站点设置页面中的服务地址和同步密钥填到这里。</p>
+
+        <label class="field">
+          <span>服务地址</span>
+          <input id="serverUrl" type="url" placeholder="http://127.0.0.1:5173/api/extension/site-cookie-sync" />
+        </label>
+
+        <label class="field">
+          <span>同步密钥</span>
+          <input id="syncKey" type="text" placeholder="从系统设置中复制同步密钥" />
+        </label>
+
+        <label class="checkbox-row">
+          <input id="autoSync" type="checkbox" />
+          <span>页面完成加载后自动同步当前站点 Cookie</span>
+        </label>
+
+        <div class="actions">
+          <button id="saveBtn" class="primary-button">保存</button>
+        </div>
+
+        <div id="saveStatus" class="status">尚未保存</div>
+      </section>
+    </main>
+    <script type="module" src="options.js"></script>
+  </body>
+  </html>

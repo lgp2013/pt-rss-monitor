@@ -11,6 +11,7 @@ import settings from './routes/settings.js';
 import userData from './routes/user-data.js';
 import sites from './routes/sites.js';
 import auth from './routes/auth.js';
+import extension from './routes/extension.js';
 import { requireAuth } from './middleware/auth.js';
 import { fetchAllSources } from './services/fetcher.js';
 import db from './db.js';
@@ -37,6 +38,7 @@ if (existsSync(frontendDistPath)) {
 
 // API Routes
 app.route('/api/auth', auth);
+app.route('/api/extension', extension);
 app.use('/api/sources*', requireAuth);
 app.use('/api/sites*', requireAuth);
 app.use('/api/resources*', requireAuth);

@@ -1,0 +1,23 @@
+{
+  "manifest_version": 3,
+  "name": "PT Cookie Sync",
+  "version": "1.0.0",
+  "description": "Sync cookies from the current PT site back to PT RSS Monitor.",
+  "permissions": [
+    "cookies",
+    "storage",
+    "tabs"
+  ],
+  "host_permissions": [
+    "<all_urls>"
+  ],
+  "background": {
+    "service_worker": "service-worker.js",
+    "type": "module"
+  },
+  "action": {
+    "default_title": "PT Cookie Sync",
+    "default_popup": "popup.html"
+  },
+  "options_page": "options.html"
+}

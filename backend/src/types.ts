@@ -17,6 +17,8 @@ export interface Site {
   created_at: string;
   cookie?: string;
   cookies?: Record<string, string>;
+  cookie_updated_at?: string | null;
+  cookie_sync_mode?: string | null;
   groups?: string[];
   is_offline?: number;
   allow_search?: number;

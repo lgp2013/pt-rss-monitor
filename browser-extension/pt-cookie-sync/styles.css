@@ -1,0 +1,139 @@
+body {
+  margin: 0;
+  font: 14px/1.5 "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  background: #0f172a;
+  color: #e2e8f0;
+}
+
+.popup-body {
+  min-width: 340px;
+}
+
+.page {
+  min-height: 100vh;
+  padding: 24px;
+  box-sizing: border-box;
+}
+
+.panel {
+  padding: 20px;
+  background: rgba(15, 23, 42, 0.94);
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  border-radius: 18px;
+  box-shadow: 0 24px 60px rgba(2, 6, 23, 0.45);
+}
+
+h1,
+h2 {
+  margin: 0 0 10px;
+}
+
+h1 {
+  font-size: 22px;
+}
+
+h2 {
+  font-size: 15px;
+}
+
+.muted {
+  margin: 0 0 14px;
+  color: #94a3b8;
+}
+
+.field {
+  display: grid;
+  gap: 6px;
+  margin-bottom: 14px;
+}
+
+.field span {
+  color: #cbd5e1;
+}
+
+input[type='url'],
+input[type='text'] {
+  width: 100%;
+  padding: 10px 12px;
+  box-sizing: border-box;
+  border-radius: 10px;
+  border: 1px solid rgba(148, 163, 184, 0.28);
+  background: rgba(15, 23, 42, 0.88);
+  color: #f8fafc;
+}
+
+.checkbox-row {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  margin-bottom: 16px;
+}
+
+.actions {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+button {
+  border: 0;
+  border-radius: 10px;
+  padding: 10px 14px;
+  cursor: pointer;
+  font-weight: 600;
+}
+
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.primary-button {
+  width: 100%;
+  background: linear-gradient(135deg, #2563eb, #0ea5e9);
+  color: #eff6ff;
+}
+
+.secondary-button {
+  width: 100%;
+  background: rgba(30, 41, 59, 0.95);
+  color: #e2e8f0;
+  border: 1px solid rgba(148, 163, 184, 0.2);
+}
+
+.status {
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: rgba(30, 41, 59, 0.85);
+  color: #cbd5e1;
+}
+
+.status.pending {
+  background: rgba(59, 130, 246, 0.16);
+  color: #bfdbfe;
+}
+
+.status.success {
+  background: rgba(16, 185, 129, 0.16);
+  color: #bbf7d0;
+}
+
+.status.error {
+  background: rgba(239, 68, 68, 0.16);
+  color: #fecaca;
+}
+
+.last-sync {
+  margin-top: 16px;
+}
+
+pre {
+  margin: 0;
+  padding: 12px;
+  border-radius: 12px;
+  background: rgba(15, 23, 42, 0.88);
+  border: 1px solid rgba(148, 163, 184, 0.16);
+  color: #cbd5e1;
+  white-space: pre-wrap;
+  word-break: break-word;
+}

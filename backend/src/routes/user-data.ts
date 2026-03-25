@@ -14,10 +14,25 @@ function stripHtml(html: string): string {
     .replace(/<script[\s\S]*?<\/script>/gi, ' ')
     .replace(/<style[\s\S]*?<\/style>/gi, ' ')
     .replace(/<[^>]+>/g, ' ')
-    .replace(/&nbsp;/g, ' ')
-    .replace(/&#160;/g, ' ')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&#160;/gi, ' ')
     .replace(/\s+/g, ' ')
     .trim();
+}
+
+function decodeHtmlEntities(text: string): string {
+  return text
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&#160;/gi, ' ')
+    .replace(/&amp;/gi, '&')
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/gi, "'");
+}
+
+function cleanInlineText(text: string): string {
+  return stripHtml(decodeHtmlEntities(text)).replace(/\s+/g, ' ').trim();
 }
 
 function parseSizeToBytes(text: string | null): number {
@@ -41,6 +56,50 @@ function extractFirst(text: string, patterns: RegExp[]): string | null {
   return null;
 }
 
+function extractFirstHtml(html: string, patterns: RegExp[]): string | null {
+  for (const pattern of patterns) {
+    const match = html.match(pattern);
+    if (match?.[1]) {
+      const value = cleanInlineText(match[1]);
+      if (value) return value;
+    }
+  }
+  return null;
+}
+
+function isLikelyUsername(value: string | null): boolean {
+  if (!value) return false;
+  const normalized = value.trim();
+  if (!normalized || normalized.length > 40) return false;
+  const lower = normalized.toLowerCase();
+  const blockedFragments = [
+    'contact',
+    'staff',
+    'management',
+    'logout',
+    'powered by',
+    'ban',
+    'download',
+    'warning',
+    '管理组',
+    '联系',
+    '解除',
+    '下载权',
+    '用户详情',
+  ];
+  if (blockedFragments.some(fragment => lower.includes(fragment.toLowerCase()))) return false;
+  if (/\s{2,}/.test(normalized)) return false;
+  return true;
+}
+
+function isLikelyLevelName(value: string | null): boolean {
+  if (!value) return false;
+  const normalized = value.trim();
+  if (!normalized || normalized.length > 32) return false;
+  const blockedFragments = ['down', 'ban', 'warning', 'contact', '管理', '解除', '下载权', '下调', '上调'];
+  return !blockedFragments.some(fragment => normalized.toLowerCase().includes(fragment.toLowerCase()));
+}
+
 function makeAbsoluteUrl(baseUrl: string, path: string): string {
   try {
     return new URL(path, baseUrl).toString();
@@ -58,6 +117,14 @@ function buildRequestHeaders(cookie?: string): Record<string, string> {
     headers.cookie = cookie.trim();
   }
   return headers;
+}
+
+function buildCookieHeaderFromMap(cookies?: Record<string, string>): string {
+  if (!cookies || typeof cookies !== 'object') return '';
+  return Object.entries(cookies)
+    .filter(([name]) => !!name)
+    .map(([name, value]) => `${name}=${value}`)
+    .join('; ');
 }
 
 function detectNeedLogin(html: string, finalUrl: string): boolean {
@@ -88,41 +155,83 @@ function extractUserProfileLink(html: string, siteUrl: string): string | null {
   return null;
 }
 
+function extractUserIdFromHtml(html: string): string | null {
+  return extractFirst(html, [
+    /userdetails\.php\?id=(\d+)/i,
+    /user\.php\?id=(\d+)/i,
+    /\/users\/(\d+)/i,
+  ]);
+}
+
+function extractUsernameFromHtml(html: string, userId: string | null): string | null {
+  const patterns: RegExp[] = [];
+
+  if (userId) {
+    patterns.push(
+      new RegExp(`<a[^>]+href=["'][^"']*userdetails\\.php\\?id=${userId}[^"']*["'][^>]*>([\\s\\S]*?)<\\/a>`, 'i'),
+      new RegExp(`<a[^>]+href=["'][^"']*user\\.php\\?id=${userId}[^"']*["'][^>]*>([\\s\\S]*?)<\\/a>`, 'i'),
+      new RegExp(`<a[^>]+href=["'][^"']*\\/users\\/${userId}[^"']*["'][^>]*>([\\s\\S]*?)<\\/a>`, 'i'),
+    );
+  }
+
+  patterns.push(
+    /<title[^>]*>[\s\S]*?(?:用户详情|User\s*Details?)\s*-\s*([^<|-]+?)\s*-\s*Powered/i,
+    /<a[^>]+class=["'][^"']*User_Name[^"']*["'][^>]*>([\s\S]*?)<\/a>/i,
+    /<a[^>]+href=["'][^"']*(?:userdetails\.php|user\.php|\/users\/)[^"']*["'][^>]*>\s*<b>([\s\S]*?)<\/b>\s*<\/a>/i,
+  );
+
+  for (const pattern of patterns) {
+    const value = extractFirstHtml(html, [pattern]);
+    if (isLikelyUsername(value)) {
+      return value;
+    }
+  }
+
+  return null;
+}
+
+function extractLevelNameFromHtml(html: string, text: string): string | null {
+  const classMatch = html.match(/class=['"]([A-Za-z]+)User_Name['"]/i);
+  if (classMatch?.[1] && isLikelyLevelName(classMatch[1])) {
+    return classMatch[1];
+  }
+
+  const textLevel = extractFirst(text, [
+    /等级[:：]?\s*([^\s|/]+)/i,
+    /用户等级[:：]?\s*([^\s|/]+)/i,
+    /Class[:：]?\s*([^\s|/]+)/i,
+    /Level[:：]?\s*([^\s|/]+)/i,
+  ]);
+
+  return isLikelyLevelName(textLevel) ? textLevel : null;
+}
+
 function parseRatio(raw: string | null): number | null {
   if (!raw) return null;
   const normalized = raw.trim();
   if (normalized === '-' || normalized === '--') return null;
-  if (/∞|inf/i.test(normalized)) return Number.POSITIVE_INFINITY;
+  if (/^(?:∞|inf)$/i.test(normalized)) return Number.POSITIVE_INFINITY;
   const value = Number(normalized);
   return Number.isFinite(value) ? value : null;
 }
 
 function parseUserInfoFromHtml(html: string) {
   const text = stripHtml(html);
-
-  const username = extractFirst(text, [
+  const userId = extractUserIdFromHtml(html);
+  const fallbackUsername = extractFirst(text, [
     /用户名[:：]?\s*([^\s|/]+)/i,
     /用户(?:名)?[:：]?\s*([^\s|/]+)/i,
     /User(?:name)?[:：]?\s*([^\s|/]+)/i,
     /Welcome(?:\s+back)?\s+([^\s|/]+)/i,
   ]);
-  const userId = extractFirst(html, [
-    /userdetails\.php\?id=(\d+)/i,
-    /user\.php\?id=(\d+)/i,
-    /\/users\/(\d+)/i,
-  ]);
-  const levelName = extractFirst(text, [
-    /等级[:：]?\s*([^\s|/]+)/i,
-    /用户等级[:：]?\s*([^\s|/]+)/i,
-    /Class[:：]?\s*([^\s|/]+)/i,
-    /Level[:：]?\s*([^\s|/]+)/i,
-  ]);
+  const username = extractUsernameFromHtml(html, userId) || (isLikelyUsername(fallbackUsername) ? fallbackUsername : null);
+  const levelName = extractLevelNameFromHtml(html, text);
   const uploadedRaw = extractFirst(text, [/上传量?[:：]?\s*([\d.,\sA-Z]+B)/i, /Uploaded[:：]?\s*([\d.,\sA-Z]+B)/i]);
   const downloadedRaw = extractFirst(text, [/下载量?[:：]?\s*([\d.,\sA-Z]+B)/i, /Downloaded[:：]?\s*([\d.,\sA-Z]+B)/i]);
-  const bonusRaw = extractFirst(text, [/魔力(?:值|豆|积分)?[:：]?\s*([\d.,]+)/i, /Bonus[:：]?\s*([\d.,]+)/i]);
-  const ratioRaw = extractFirst(text, [/分享率[:：]?\s*([0-9.∞INFinf-]+)/i, /Ratio[:：]?\s*([0-9.∞INFinf-]+)/i]);
+  const bonusRaw = extractFirst(text, [/魔力(?:值|积分)?[:：]?\s*([\d.,]+)/i, /Bonus[:：]?\s*([\d.,]+)/i]);
+  const ratioRaw = extractFirst(text, [/分享率[:：]?\s*([0-9.+-]+|∞|Inf|inf|--|-)/i, /Ratio[:：]?\s*([0-9.+-]+|∞|Inf|inf|--|-)/i]);
   const seedingRaw = extractFirst(text, [/做种(?:数)?[:：]?\s*(\d+)/i, /Seeding[:：]?\s*(\d+)/i]);
-  const seedingSizeRaw = extractFirst(text, [/做种体积[:：]?\s*([\d.,\sA-Z]+B)/i, /Seeding Size[:：]?\s*([\d.,\sA-Z]+B)/i]);
+  const seedingSizeRaw = extractFirst(text, [/做种(?:量|体积)[:：]?\s*([\d.,\sA-Z]+B)/i, /Seeding Size[:：]?\s*([\d.,\sA-Z]+B)/i]);
   const uploadsRaw = extractFirst(text, [/发布(?:数)?[:：]?\s*(\d+)/i, /Uploads[:：]?\s*(\d+)/i]);
   const invitesRaw = extractFirst(text, [/邀请(?:数)?[:：]?\s*(\d+)/i, /Invites[:：]?\s*(\d+)/i]);
   const messageCountRaw = extractFirst(text, [/消息(?:数)?[:：]?\s*(\d+)/i, /Messages?[:：]?\s*(\d+)/i]);
@@ -171,7 +280,7 @@ async function refreshSiteUserData(siteId: number) {
     return { status: 400 as const, body: { error: 'Site URL not configured' } };
   }
 
-  const cookie = site.cookie?.trim() || '';
+  const cookie = site.cookie?.trim() || buildCookieHeaderFromMap(site.cookies);
   const homePage = await fetchHtml(site.site_url, cookie);
 
   if (!homePage.ok || detectNeedLogin(homePage.html, homePage.finalUrl)) {
@@ -192,6 +301,7 @@ async function refreshSiteUserData(siteId: number) {
   const profilePage = profileUrl && profileUrl !== homePage.finalUrl ? await fetchHtml(profileUrl, cookie) : null;
   const mergedHtml = [homePage.html, profilePage?.html].filter(Boolean).join('\n');
   const parsed = parseUserInfoFromHtml(mergedHtml);
+  const existing = db.getUserDataBySiteId(siteId);
 
   const parsedFields = {
     username: !!parsed.username,
@@ -207,6 +317,9 @@ async function refreshSiteUserData(siteId: number) {
 
   const saved = db.upsertUserData(siteId, {
     ...parsed,
+    username: parsed.username ?? existing?.username ?? null,
+    user_id: parsed.user_id ?? existing?.user_id ?? null,
+    level_name: parsed.level_name ?? existing?.level_name ?? null,
     status: parsedFieldCount >= 4 ? 'success' : parsedFieldCount > 0 ? 'warning' : 'error',
   });
 
@@ -223,7 +336,7 @@ async function refreshSiteUserData(siteId: number) {
         parsedFieldCount === 0
           ? '未能识别当前站点的用户信息结构，需要补充站点专用解析规则'
           : parsedFieldCount < 4
-            ? '仅解析到部分字段，当前站点结构可能需要专门适配'
+            ? '只解析到部分字段，当前站点结构可能还需要专门适配'
             : undefined,
     },
   };
