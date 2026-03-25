@@ -8,6 +8,10 @@ import { resolve, join } from 'path';
 import rss from './routes/rss.js';
 import resource from './routes/resource.js';
 import settings from './routes/settings.js';
+import userData from './routes/user-data.js';
+import sites from './routes/sites.js';
+import auth from './routes/auth.js';
+import { requireAuth } from './middleware/auth.js';
 import { fetchAllSources } from './services/fetcher.js';
 import db from './db.js';
 
@@ -32,9 +36,17 @@ if (existsSync(frontendDistPath)) {
 }
 
 // API Routes
+app.route('/api/auth', auth);
+app.use('/api/sources*', requireAuth);
+app.use('/api/sites*', requireAuth);
+app.use('/api/resources*', requireAuth);
+app.use('/api/settings*', requireAuth);
+app.use('/api/user-data*', requireAuth);
 app.route('/api/sources', rss);
+app.route('/api/sites', sites);
 app.route('/api/resources', resource);
 app.route('/api/settings', settings);
+app.route('/api/user-data', userData);
 
 // Health check
 app.get('/api/health', (c) => c.json({ status: 'ok' }));

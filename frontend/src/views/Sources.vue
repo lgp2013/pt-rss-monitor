@@ -1,10 +1,11 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue';
-import { sourcesApi } from '../api';
-import SourceCard from '../components/SourceCard.vue';
+import { onMounted, ref } from 'vue';
+import { settingsApi, sourcesApi } from '../api';
 import AddSourceModal from '../components/AddSourceModal.vue';
+import SourceCard from '../components/SourceCard.vue';
 
 const sources = ref<any[]>([]);
+const categories = ref<string[]>([]);
 const loading = ref(false);
 const showModal = ref(false);
 const editingSource = ref<any | null>(null);
@@ -12,7 +13,9 @@ const editingSource = ref<any | null>(null);
 async function loadSources() {
   loading.value = true;
   try {
-    sources.value = await sourcesApi.list();
+    const [sourceItems, categoryItems] = await Promise.all([sourcesApi.list(), settingsApi.getCategories()]);
+    sources.value = sourceItems;
+    categories.value = categoryItems.categories || [];
   } catch (error) {
     console.error('Failed to load sources:', error);
   } finally {
@@ -43,7 +46,7 @@ async function handleSave(data: any) {
       await sourcesApi.create(data);
     }
     closeModal();
-    loadSources();
+    await loadSources();
   } catch (error) {
     console.error('Failed to save source:', error);
     alert('保存失败: ' + (error as Error).message);
@@ -54,7 +57,7 @@ async function handleDelete(id: number) {
   if (!confirm('确定删除此 RSS 源？相关资源也会被删除。')) return;
   try {
     await sourcesApi.delete(id);
-    loadSources();
+    await loadSources();
   } catch (error) {
     console.error('Failed to delete source:', error);
   }
@@ -74,15 +77,13 @@ async function handleFetchAll() {
   try {
     await sourcesApi.fetchAll();
     alert('全部抓取完成');
-    loadSources();
+    await loadSources();
   } catch (error) {
     console.error('Failed to fetch all:', error);
   }
 }
 
-onMounted(() => {
-  loadSources();
-});
+onMounted(loadSources);
 </script>
 
 <template>
@@ -95,18 +96,15 @@ onMounted(() => {
       </div>
     </div>
 
-    <!-- Loading -->
     <div v-if="loading" class="loading">
       <div class="spinner"></div>
     </div>
 
-    <!-- Empty state -->
     <div v-else-if="sources.length === 0" class="empty-state card">
       <p>暂无 RSS 源</p>
-      <p class="text-muted">点击上方按钮添加第一个 RSS 源</p>
+      <p class="text-muted">点击上方按钮添加第一个 RSS 源。</p>
     </div>
 
-    <!-- Sources grid -->
     <div v-else class="sources-grid">
       <SourceCard
         v-for="source in sources"
@@ -118,10 +116,10 @@ onMounted(() => {
       />
     </div>
 
-    <!-- Add/Edit Modal -->
     <AddSourceModal
       v-if="showModal"
       :source="editingSource"
+      :categories="categories"
       @close="closeModal"
       @save="handleSave"
     />

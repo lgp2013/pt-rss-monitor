@@ -8,7 +8,8 @@ const resource = new Hono();
 // GET /api/resources - List resources with pagination and filters
 resource.get('/', (c) => {
   const page = parseInt(c.req.query('page') || '1', 10);
-  const limit = parseInt(c.req.query('limit') || '50', 10);
+  const requestedLimit = parseInt(c.req.query('limit') || '10', 10);
+  const limit = [10, 30, 50, 100].includes(requestedLimit) ? requestedLimit : 10;
   const sourceId = c.req.query('source_id');
   const category = c.req.query('category');
   const search = c.req.query('search');
@@ -75,9 +76,14 @@ resource.get('/', (c) => {
 
   const allParams = [...params, limit, offset];
   const resources = db.prepare(query).all(...allParams) as (Resource & { source_name: string; category: string })[];
+  const lightweightResources = resources.map(({ description_html, ...resource }) => ({
+    ...resource,
+    translated_name: resource.translated_name ?? null,
+    description: resource.description ? resource.description.slice(0, 1200) : resource.description,
+  }));
 
   return c.json({
-    data: resources,
+    data: lightweightResources,
     pagination: {
       page,
       limit,

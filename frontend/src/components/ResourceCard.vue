@@ -5,6 +5,7 @@ const props = defineProps<{
   resource: {
     id: number;
     title: string;
+    translated_name?: string | null;
     link: string;
     source_name: string;
     category: string;
@@ -21,37 +22,19 @@ const props = defineProps<{
   };
 }>();
 
-const emit = defineEmits<{
-  delete: [id: number];
-}>();
-
 const showFullDescription = ref(false);
-
-const formatTime = (dateStr: string | null) => {
-  if (!dateStr) return '-';
-  const date = new Date(dateStr);
-  const now = new Date();
-  const diff = Math.floor((now.getTime() - date.getTime()) / 1000);
-  
-  if (diff < 60) return `${diff}s`;
-  if (diff < 3600) return `${Math.floor(diff / 60)}m`;
-  if (diff < 86400) return `${Math.floor(diff / 3600)}h`;
-  return `${Math.floor(diff / 86400)}d`;
-};
 
 const openLink = () => {
   window.open(props.resource.link, '_blank');
 };
 
-// Get badge class based on free tag
 const badgeClass = computed(() => {
   const tag = props.resource.free_tag?.toUpperCase();
   if (tag === 'FREE') return 'badge-free';
   if (tag?.includes('%')) return 'badge-discount';
-  return 'badge-free';
+  return 'badge-neutral';
 });
 
-// Extract resolution from title
 const resolution = computed(() => {
   const match = props.resource.title.match(/(2160p|1080p|720p|480p)/i);
   return match ? match[1].toUpperCase() : null;
@@ -59,111 +42,102 @@ const resolution = computed(() => {
 
 const resolutionClass = computed(() => {
   const res = resolution.value;
-  if (res === '2160p') return 'res-4k';
-  if (res === '1080p') return 'res-fhd';
-  if (res === '720p') return 'res-hd';
+  if (res === '2160P') return 'res-4k';
+  if (res === '1080P') return 'res-fhd';
+  if (res === '720P') return 'res-hd';
   return 'res-sd';
 });
 
-// Clean HTML tags from description
 const cleanDescription = computed(() => {
   if (!props.resource.description) return '';
   return props.resource.description
-    .replace(/<[^>]*>/g, '') // Remove HTML tags
+    .replace(/<[^>]*>/g, ' ')
     .replace(/&nbsp;/g, ' ')
     .replace(/&amp;/g, '&')
     .replace(/&lt;/g, '<')
     .replace(/&gt;/g, '>')
     .replace(/&quot;/g, '"')
     .replace(/&#39;/g, "'")
+    .replace(/\r/g, '')
+    .replace(/\n{3,}/g, '\n\n')
+    .replace(/[ \t]+\n/g, '\n')
     .trim();
 });
 
-// Truncated description for display
-const shortDescription = computed(() => {
-  const desc = cleanDescription.value;
-  if (!desc) return '';
-  return desc.length > 150 ? desc.substring(0, 150) + '...' : desc;
+const descriptionBlocks = computed(() => {
+  if (!cleanDescription.value) return [];
+  return cleanDescription.value
+    .split(/\n{2,}/)
+    .map(block => block.trim())
+    .filter(Boolean);
 });
+
+const joinedDescription = computed(() => descriptionBlocks.value.join('\n\n'));
+const hasMoreDescription = computed(() => joinedDescription.value.length > 220 || descriptionBlocks.value.length > 1);
+const translatedTitle = computed(() => props.resource.translated_name?.trim() || '');
 </script>
 
 <template>
   <div class="resource-card">
     <div class="poster">
-      <img 
-        v-if="resource.poster_url" 
-        :src="resource.poster_url" 
+      <img
+        v-if="resource.poster_url"
+        :src="resource.poster_url"
         :alt="resource.title"
         class="poster-img"
-        @error="($event.target as HTMLImageElement).style.display='none'"
+        loading="lazy"
+        decoding="async"
+        referrerpolicy="no-referrer"
+        @error="($event.target as HTMLImageElement).style.display = 'none'"
       />
       <div v-else class="poster-placeholder">
         <svg viewBox="0 0 24 24" fill="currentColor">
-          <path d="M18 4l2 4h-3l-2-4h-2l2 4h-3l-2-4H8l2 4H7L5 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V4h-4z"/>
+          <path d="M18 4l2 4h-3l-2-4h-2l2 4h-3l-2-4H8l2 4H7L5 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V4h-4z" />
         </svg>
       </div>
     </div>
+
     <div class="content">
       <div class="header">
         <div class="title-row">
           <h3 class="title" @click="openLink">{{ resource.title }}</h3>
-          <span v-if="resource.free_tag" class="badge" :class="badgeClass">
-            {{ resource.free_tag }}
-          </span>
-          <span v-if="resolution" class="badge resolution-badge" :class="resolutionClass">
-            {{ resolution }}
-          </span>
+          <span v-if="resource.free_tag" class="badge" :class="badgeClass">{{ resource.free_tag }}</span>
+          <span v-if="resolution" class="badge resolution-badge" :class="resolutionClass">{{ resolution }}</span>
         </div>
-        <div v-if="resource.subtitle" class="subtitle">
-          {{ resource.subtitle }}
-        </div>
-        <div class="meta">
+
+        <div class="resource-line">
+          <template v-if="translatedTitle">
+            <span class="translated-title-inline">{{ translatedTitle }}</span>
+            <span class="separator">/</span>
+          </template>
+          <span>{{ resource.category || '未分类' }}</span>
+          <span class="separator">/</span>
           <span class="site">{{ resource.source_name }}</span>
-          <span class="separator">•</span>
-          <span class="category">{{ resource.category || '未分类' }}</span>
-          <span class="separator">•</span>
-          <span class="time">{{ formatTime(resource.pub_date || resource.created_at) }}</span>
+          <template v-if="resource.size">
+            <span class="separator">/</span>
+            <span>{{ resource.size }}</span>
+          </template>
+          <span class="separator">/</span>
+          <span>Seeders {{ resource.seeders }}</span>
+          <span class="separator">/</span>
+          <span>Leechers {{ resource.leechers }}</span>
+          <span class="separator">/</span>
+          <span>Downloads {{ resource.downloads }}</span>
         </div>
       </div>
-      <div class="stats">
-        <div class="stat">
-          <span class="stat-label">做种</span>
-          <span class="stat-value seeders">{{ resource.seeders }}</span>
+
+      <div v-if="descriptionBlocks.length" class="description">
+        <div class="description-header">
+          <span class="description-title">详情</span>
+          <button v-if="hasMoreDescription" class="toggle-btn" @click="showFullDescription = !showFullDescription">
+            {{ showFullDescription ? '收起' : '展开' }}
+          </button>
         </div>
-        <div class="stat">
-          <span class="stat-label">下载</span>
-          <span class="stat-value">{{ resource.downloads }}</span>
+        <div class="description-body">
+          <div :class="['description-text', { collapsed: !showFullDescription }]">
+            {{ joinedDescription }}
+          </div>
         </div>
-        <div class="stat" v-if="resource.size">
-          <span class="stat-label">大小</span>
-          <span class="stat-value">{{ resource.size }}</span>
-        </div>
-        <div class="stat">
-          <span class="stat-label">互助</span>
-          <span class="stat-value">{{ resource.leechers }}</span>
-        </div>
-        <div class="stat" v-if="resource.free_tag">
-          <span class="stat-label">折扣</span>
-          <span class="stat-value" :class="badgeClass">{{ resource.free_tag }}</span>
-        </div>
-        <div class="stat">
-          <span class="stat-label">时间</span>
-          <span class="stat-value">{{ formatTime(resource.created_at) }}</span>
-        </div>
-      </div>
-      <div v-if="cleanDescription" class="description">
-        <div v-if="showFullDescription" class="description-text">
-          {{ cleanDescription }}
-          <button v-if="cleanDescription.length > 150" class="show-less-btn" @click="showFullDescription = false">收起</button>
-        </div>
-        <div v-else class="description-text">
-          {{ shortDescription }}
-          <button v-if="cleanDescription.length > 150" class="show-more-btn" @click="showFullDescription = true">展开</button>
-        </div>
-      </div>
-      <div class="actions">
-        <button class="btn btn-primary" @click="openLink">打开</button>
-        <button class="btn" @click="emit('delete', resource.id)">删除</button>
       </div>
     </div>
   </div>
@@ -172,25 +146,22 @@ const shortDescription = computed(() => {
 <style scoped>
 .resource-card {
   display: flex;
-  gap: 16px;
-  padding: 16px;
+  gap: 18px;
+  padding: 18px;
+  margin-bottom: 14px;
   background: var(--color-bg-secondary);
-  border-radius: 8px;
-  margin-bottom: 12px;
-  transition: background-color 0.2s;
-}
-
-.resource-card:hover {
-  background: var(--color-bg-tertiary);
+  border: 1px solid var(--color-border);
+  border-radius: 14px;
 }
 
 .poster {
   flex-shrink: 0;
-  width: 100px;
-  height: 140px;
-  border-radius: 6px;
+  width: 112px;
+  height: 156px;
   overflow: hidden;
+  border-radius: 10px;
   background: var(--color-bg-primary);
+  border: 1px solid var(--color-border);
 }
 
 .poster-img {
@@ -215,14 +186,10 @@ const shortDescription = computed(() => {
 
 .content {
   flex: 1;
+  min-width: 0;
   display: flex;
   flex-direction: column;
-  justify-content: space-between;
-  min-width: 0;
-}
-
-.header {
-  flex: 1;
+  gap: 14px;
 }
 
 .title-row {
@@ -233,215 +200,158 @@ const shortDescription = computed(() => {
 }
 
 .title {
-  font-size: 16px;
-  font-weight: 600;
-  color: var(--color-text-primary);
   margin: 0;
+  font-size: 18px;
+  font-weight: 700;
+  line-height: 1.35;
+  color: var(--color-text-primary);
   cursor: pointer;
-  word-break: break-all;
-  line-height: 1.3;
+  word-break: break-word;
 }
 
 .title:hover {
   color: var(--color-accent);
 }
 
-.subtitle {
-  font-size: 13px;
-  color: var(--color-text-secondary);
-  margin-top: 4px;
-  line-height: 1.4;
-}
-
-.badge {
-  flex-shrink: 0;
-  padding: 2px 8px;
-  border-radius: 4px;
-  font-size: 12px;
-  font-weight: 600;
-}
-
-.badge-free {
-  background: var(--color-free);
-  color: white;
-}
-
-.badge-discount {
-  background: var(--color-discount);
-  color: white;
-}
-
-.resolution-badge {
-  background: var(--color-bg-tertiary);
-  color: var(--color-text-primary);
-  border: 1px solid var(--color-border);
-}
-
-.res-4k {
-  background: #8b5cf6;
-  color: white;
-  border: none;
-}
-
-.res-fhd {
-  background: #10b981;
-  color: white;
-  border: none;
-}
-
-.res-hd {
-  background: #3b82f6;
-  color: white;
-  border: none;
-}
-
-.res-sd {
-  background: #6b7280;
-  color: white;
-  border: none;
-}
-
-.meta {
+.resource-line {
   display: flex;
   align-items: center;
   gap: 8px;
+  flex-wrap: wrap;
   margin-top: 8px;
   font-size: 13px;
   color: var(--color-text-secondary);
-  flex-wrap: wrap;
+}
+
+.site {
+  color: var(--color-accent);
+  font-weight: 600;
+}
+
+.translated-title-inline {
+  color: var(--color-text-primary);
+  opacity: 0.82;
 }
 
 .separator {
   color: var(--color-text-muted);
 }
 
-.site {
-  color: var(--color-accent);
-}
-
-.stats {
-  display: flex;
-  gap: 20px;
-  margin-top: 12px;
-  flex-wrap: wrap;
-}
-
-.stat {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.stat-label {
+.badge {
+  padding: 3px 9px;
+  border-radius: 999px;
   font-size: 12px;
-  color: var(--color-text-muted);
+  font-weight: 700;
 }
 
-.stat-value {
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--color-text-primary);
+.badge-free {
+  background: var(--color-free);
+  color: #fff;
 }
 
-.stat-value.seeders {
-  color: var(--color-success);
+.badge-discount {
+  background: var(--color-discount);
+  color: #fff;
 }
 
-.actions {
-  display: flex;
-  gap: 8px;
-  margin-top: 12px;
-  align-items: center;
-}
-
-.link-btn {
-  padding: 6px 12px;
-  border-radius: 4px;
-  font-size: 13px;
-  background: var(--color-bg-primary);
-  color: var(--color-text-primary);
-  text-decoration: none;
-  border: 1px solid var(--color-border);
-  cursor: pointer;
-  transition: all 0.2s;
-}
-
-.link-btn:hover {
+.badge-neutral {
   background: var(--color-bg-tertiary);
-}
-
-.btn {
-  padding: 6px 16px;
-  border-radius: 4px;
-  font-size: 13px;
-  border: none;
-  cursor: pointer;
-  background: var(--color-bg-primary);
   color: var(--color-text-primary);
-  transition: all 0.2s;
 }
 
-.btn:hover {
-  opacity: 0.8;
+.resolution-badge {
+  border: 1px solid transparent;
 }
 
-.btn-primary {
-  background: var(--color-accent);
-  color: white;
+.res-4k {
+  background: #7c3aed;
+  color: #fff;
 }
 
-.btn-primary:hover {
-  background: var(--color-accent-hover);
+.res-fhd {
+  background: #059669;
+  color: #fff;
+}
+
+.res-hd {
+  background: #2563eb;
+  color: #fff;
+}
+
+.res-sd {
+  background: #6b7280;
+  color: #fff;
 }
 
 .description {
-  margin-top: 12px;
-  padding: 10px 12px;
-  background: var(--color-bg-primary);
-  border-radius: 6px;
-  border-left: 3px solid var(--color-accent);
+  padding: 14px 16px;
+  border-radius: 12px;
+  background: linear-gradient(180deg, rgba(37, 99, 235, 0.06), rgba(37, 99, 235, 0.02));
+  border: 1px solid rgba(37, 99, 235, 0.14);
+}
+
+.description-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.description-title {
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--color-accent);
+}
+
+.description-body {
+  display: block;
 }
 
 .description-text {
   font-size: 13px;
+  line-height: 1.6;
   color: var(--color-text-secondary);
-  line-height: 1.5;
   white-space: pre-wrap;
   word-break: break-word;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 
-.show-more-btn,
-.show-less-btn {
-  background: none;
+.description-text.collapsed {
+  -webkit-line-clamp: 5;
+}
+
+.toggle-btn {
+  padding: 0;
   border: none;
+  background: transparent;
   color: var(--color-accent);
   cursor: pointer;
   font-size: 12px;
-  padding: 0;
-  margin-left: 8px;
+  font-weight: 600;
 }
 
-.show-more-btn:hover,
-.show-less-btn:hover {
+.toggle-btn:hover {
   text-decoration: underline;
 }
 
-@media (max-width: 600px) {
+@media (max-width: 720px) {
   .resource-card {
     flex-direction: column;
   }
-  
+
   .poster {
-    width: 80px;
-    height: 110px;
+    width: 96px;
+    height: 136px;
   }
-  
-  .stats {
-    gap: 16px;
+
+  .resource-line {
+    gap: 6px;
   }
-  
-  .actions {
-    flex-wrap: wrap;
-  }
+
 }
 </style>

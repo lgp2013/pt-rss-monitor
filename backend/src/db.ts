@@ -1,7 +1,6 @@
-// In-memory database with file persistence for development
-
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'fs';
-import { dirname, resolve } from 'path';
+import { resolve } from 'path';
+import { createHash, randomBytes } from 'crypto';
 
 interface Source {
   id: number;
@@ -11,14 +10,36 @@ interface Source {
   fetch_interval: number;
   enabled: number;
   created_at: string;
+}
+
+interface Site {
+  id: number;
+  name: string;
+  site_url: string;
+  category: string;
+  enabled: number;
+  created_at: string;
   cookie?: string;
   cookies?: Record<string, string>;
+  groups?: string[];
+  is_offline?: number;
+  allow_search?: number;
+  allow_query_user_info?: number;
+  allow_content_script?: number;
+  custom_name?: string | null;
+  timezone_offset?: string | null;
+  passkey?: string | null;
+  download_link_appendix?: string | null;
+  request_timeout?: number;
+  download_interval?: number;
+  upload_speed_limit?: number;
 }
 
 interface Resource {
   id: number;
   source_id: number;
   title: string;
+  translated_name?: string | null;
   link: string;
   guid: string | null;
   pub_date: string | null;
@@ -32,6 +53,7 @@ interface Resource {
   poster_url?: string | null;
   category?: string | null;
   description?: string | null;
+  description_html?: string | null;
 }
 
 interface Setting {
@@ -39,76 +61,192 @@ interface Setting {
   value: string;
 }
 
+interface User {
+  id: number;
+  username: string;
+  password_hash: string;
+  is_system: number;
+  created_at: string;
+  updated_at: string;
+}
+
+interface AuthSession {
+  token: string;
+  user_id: number;
+  created_at: string;
+  expires_at: string;
+}
+
+interface UserData {
+  id: number;
+  site_id: number;
+  username: string | null;
+  user_id: string | null;
+  level_name: string | null;
+  uploaded: number;
+  downloaded: number;
+  ratio: number | null;
+  true_uploaded: number | null;
+  true_downloaded: number | null;
+  true_ratio: number | null;
+  uploads: number;
+  seeding: number;
+  seeding_size: number;
+  bonus: number;
+  bonus_per_hour: number;
+  invites: number;
+  join_time: string | null;
+  last_access_at: string | null;
+  message_count: number;
+  status: string;
+  updated_at: string;
+}
+
+interface UserDataHistory extends UserData {
+  history_id: number;
+  snapshot_at: string;
+}
+
 interface DatabaseState {
   sources: Source[];
+  sites: Site[];
   resources: Resource[];
   settings: Setting[];
+  users: User[];
+  authSessions: AuthSession[];
+  userData: UserData[];
+  userDataHistory: UserDataHistory[];
   sourceIdCounter: number;
+  siteIdCounter: number;
   resourceIdCounter: number;
+  userIdCounter: number;
+  userDataIdCounter: number;
+  userDataHistoryIdCounter: number;
+}
+
+const DEFAULT_SITE_VALUES = {
+  groups: [] as string[],
+  is_offline: 0,
+  allow_search: 1,
+  allow_query_user_info: 1,
+  allow_content_script: 1,
+  custom_name: null as string | null,
+  timezone_offset: '+0800' as string | null,
+  passkey: null as string | null,
+  download_link_appendix: null as string | null,
+  request_timeout: 30000,
+  download_interval: 0,
+  upload_speed_limit: 0,
+};
+
+function normalizeSite(site: Site): Site {
+  return {
+    ...DEFAULT_SITE_VALUES,
+    ...site,
+    groups: Array.isArray(site.groups) ? site.groups : [],
+    is_offline: Number(site.is_offline ?? 0),
+    allow_search: Number(site.allow_search ?? 1),
+    allow_query_user_info: Number(site.allow_query_user_info ?? 1),
+    allow_content_script: Number(site.allow_content_script ?? 1),
+    request_timeout: Number(site.request_timeout ?? 30000),
+    download_interval: Number(site.download_interval ?? 0),
+    upload_speed_limit: Number(site.upload_speed_limit ?? 0),
+  };
+}
+
+function normalizeNumber(value: unknown, fallback = 0): number {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function extractTranslatedName(description?: string | null): string | null {
+  if (!description) return null;
+  const normalized = description
+    .replace(/\u3000/g, ' ')
+    .replace(/[：:]/g, ' ')
+    .replace(/[ \t]+/g, ' ');
+  const lines = normalized
+    .split('\n')
+    .map(line => line.trim())
+    .filter(Boolean);
+
+  for (const line of lines) {
+    const cleanedLine = line
+      .replace(/^◎\s*/, '')
+      .replace(/^â\s*/, '')
+      .trim();
+    const match = cleanedLine.match(/^(?:译\s*名|è¯\s*å)\s+(.+)$/);
+    if (match?.[1]) {
+      return match[1].trim();
+    }
+  }
+
+  return null;
+}
+
+function normalizeResource(resource: Resource): Resource {
+  return {
+    ...resource,
+    translated_name: resource.translated_name ?? extractTranslatedName(resource.description) ?? null,
+  };
+}
+
+function hashPassword(password: string): string {
+  return createHash('sha256').update(password).digest('hex');
 }
 
 class InMemoryDB {
   private sources: Source[] = [];
+  private sites: Site[] = [];
   private resources: Resource[] = [];
   private settings: Setting[] = [];
+  private users: User[] = [];
+  private authSessions: AuthSession[] = [];
+  private userData: UserData[] = [];
+  private userDataHistory: UserDataHistory[] = [];
   private sourceIdCounter = 1;
+  private siteIdCounter = 1;
   private resourceIdCounter = 1;
+  private userIdCounter = 1;
+  private userDataIdCounter = 1;
+  private userDataHistoryIdCounter = 1;
   private dbPath: string;
 
   constructor() {
-    // Set database file path
     const dbPathEnv = process.env.DB_PATH;
     if (dbPathEnv) {
       this.dbPath = dbPathEnv;
     } else {
       const dataDir = resolve(process.cwd(), './data');
-      if (!existsSync(dataDir)) {
-        mkdirSync(dataDir, { recursive: true });
-      }
+      if (!existsSync(dataDir)) mkdirSync(dataDir, { recursive: true });
       this.dbPath = resolve(dataDir, 'pt-rss-monitor.json');
     }
-
-    // Load data from file if it exists
     this.loadData();
-
-    // Initialize default settings if not exist
-    const defaultSettings = [
+    const defaults = [
       { key: 'global_fetch_interval', value: '30' },
       { key: 'auto_fetch_enabled', value: 'true' },
       { key: 'theme', value: 'system' },
       { key: 'resources_retention_days', value: '30' },
     ];
-
-    for (const setting of defaultSettings) {
-      if (!this.settings.some(s => s.key === setting.key)) {
-        this.settings.push(setting);
-      }
+    for (const setting of defaults) {
+      if (!this.settings.some(s => s.key === setting.key)) this.settings.push(setting);
     }
-
-    // Save initial data
+    this.ensureDefaultAdmin();
     this.saveData();
   }
 
-  // Sources
   allSources(): Source[] {
     return this.sources;
   }
-
   getSource(id: number): Source | undefined {
     return this.sources.find(s => s.id === id);
   }
-
   addSource(source: Omit<Source, 'id' | 'created_at'>): Source {
-    const newSource: Source = {
-      ...source,
-      id: this.sourceIdCounter++,
-      created_at: new Date().toISOString(),
-    };
+    const newSource: Source = { ...source, id: this.sourceIdCounter++, created_at: new Date().toISOString() };
     this.sources.push(newSource);
     this.saveData();
     return newSource;
   }
-
   updateSource(id: number, updates: Partial<Source>): Source | undefined {
     const index = this.sources.findIndex(s => s.id === id);
     if (index === -1) return undefined;
@@ -116,43 +254,73 @@ class InMemoryDB {
     this.saveData();
     return this.sources[index];
   }
-
   deleteSource(id: number): boolean {
     const initialLength = this.sources.length;
     this.sources = this.sources.filter(s => s.id !== id);
-    // Also delete associated resources
     this.resources = this.resources.filter(r => r.source_id !== id);
     this.saveData();
     return this.sources.length < initialLength;
   }
 
-  // Resources
+  allSites(): Site[] {
+    return this.sites.map(normalizeSite);
+  }
+  getSite(id: number): Site | undefined {
+    const site = this.sites.find(s => s.id === id);
+    return site ? normalizeSite(site) : undefined;
+  }
+  addSite(site: Omit<Site, 'id' | 'created_at'>): Site {
+    const newSite = normalizeSite({ ...site, id: this.siteIdCounter++, created_at: new Date().toISOString() });
+    this.sites.push(newSite);
+    this.saveData();
+    return newSite;
+  }
+  updateSite(id: number, updates: Partial<Site>): Site | undefined {
+    const index = this.sites.findIndex(s => s.id === id);
+    if (index === -1) return undefined;
+    this.sites[index] = normalizeSite({ ...this.sites[index], ...updates });
+    this.saveData();
+    return this.sites[index];
+  }
+  deleteSite(id: number): boolean {
+    const initialLength = this.sites.length;
+    this.sites = this.sites.filter(s => s.id !== id);
+    this.userData = this.userData.filter(item => item.site_id !== id);
+    this.userDataHistory = this.userDataHistory.filter(item => item.site_id !== id);
+    this.saveData();
+    return this.sites.length < initialLength;
+  }
+
   allResources(): Resource[] {
-    return this.resources;
+    return this.resources.map(normalizeResource);
   }
-
   getResource(id: number): Resource | undefined {
-    return this.resources.find(r => r.id === id);
+    const resource = this.resources.find(r => r.id === id);
+    return resource ? normalizeResource(resource) : undefined;
   }
-
   addResource(resource: Omit<Resource, 'id' | 'created_at'>): Resource {
-    const newResource: Resource = {
+    const newResource: Resource = normalizeResource({
       ...resource,
       id: this.resourceIdCounter++,
       created_at: new Date().toISOString(),
-    };
+    });
     this.resources.push(newResource);
     this.saveData();
     return newResource;
   }
-
+  updateResource(id: number, updates: Partial<Resource>): Resource | undefined {
+    const index = this.resources.findIndex(r => r.id === id);
+    if (index === -1) return undefined;
+    this.resources[index] = normalizeResource({ ...this.resources[index], ...updates });
+    this.saveData();
+    return this.resources[index];
+  }
   deleteResource(id: number): boolean {
     const initialLength = this.resources.length;
     this.resources = this.resources.filter(r => r.id !== id);
     this.saveData();
     return this.resources.length < initialLength;
   }
-
   deleteResourcesBySourceId(sourceId: number): number {
     const initialLength = this.resources.length;
     this.resources = this.resources.filter(r => r.source_id !== sourceId);
@@ -160,97 +328,189 @@ class InMemoryDB {
     return initialLength - this.resources.length;
   }
 
-  // Settings
   allSettings(): Setting[] {
     return this.settings;
   }
-
   getSetting(key: string): Setting | undefined {
     return this.settings.find(s => s.key === key);
   }
-
   updateSetting(key: string, value: string): Setting {
     const index = this.settings.findIndex(s => s.key === key);
-    if (index === -1) {
-      const newSetting: Setting = { key, value };
-      this.settings.push(newSetting);
-    } else {
-      this.settings[index].value = value;
-    }
+    if (index === -1) this.settings.push({ key, value });
+    else this.settings[index].value = value;
     this.saveData();
     return this.settings.find(s => s.key === key) as Setting;
   }
 
-  // Exec method for compatibility
-  exec(sql: string): void {
-    // No-op for in-memory implementation
+  allUsers(): User[] {
+    return this.users;
+  }
+  getUserById(id: number): User | undefined {
+    return this.users.find(user => user.id === id);
+  }
+  getUserByUsername(username: string): User | undefined {
+    return this.users.find(user => user.username.toLowerCase() === username.trim().toLowerCase());
+  }
+  createUser(user: Omit<User, 'id' | 'created_at' | 'updated_at'>): User {
+    const now = new Date().toISOString();
+    const newUser: User = {
+      ...user,
+      id: this.userIdCounter++,
+      created_at: now,
+      updated_at: now,
+    };
+    this.users.push(newUser);
+    this.saveData();
+    return newUser;
+  }
+  updateUser(id: number, updates: Partial<Omit<User, 'id' | 'created_at'>>): User | undefined {
+    const index = this.users.findIndex(user => user.id === id);
+    if (index === -1) return undefined;
+    this.users[index] = {
+      ...this.users[index],
+      ...updates,
+      updated_at: new Date().toISOString(),
+    };
+    this.saveData();
+    return this.users[index];
+  }
+  verifyPassword(user: User, password: string): boolean {
+    return user.password_hash === hashPassword(password);
+  }
+  createAuthSession(userId: number, expiresInHours = 24 * 7): AuthSession {
+    const createdAt = new Date();
+    const expiresAt = new Date(createdAt.getTime() + expiresInHours * 60 * 60 * 1000);
+    const session: AuthSession = {
+      token: randomBytes(32).toString('hex'),
+      user_id: userId,
+      created_at: createdAt.toISOString(),
+      expires_at: expiresAt.toISOString(),
+    };
+    this.authSessions = this.authSessions.filter(item => item.user_id !== userId);
+    this.authSessions.push(session);
+    this.saveData();
+    return session;
+  }
+  getAuthSession(token: string): AuthSession | undefined {
+    const now = Date.now();
+    const session = this.authSessions.find(item => item.token === token);
+    if (!session) return undefined;
+    if (new Date(session.expires_at).getTime() <= now) {
+      this.deleteAuthSession(token);
+      return undefined;
+    }
+    return session;
+  }
+  deleteAuthSession(token: string): boolean {
+    const initialLength = this.authSessions.length;
+    this.authSessions = this.authSessions.filter(item => item.token !== token);
+    if (this.authSessions.length !== initialLength) {
+      this.saveData();
+      return true;
+    }
+    return false;
+  }
+  deleteAuthSessionsByUserId(userId: number): number {
+    const initialLength = this.authSessions.length;
+    this.authSessions = this.authSessions.filter(item => item.user_id !== userId);
+    const deleted = initialLength - this.authSessions.length;
+    if (deleted > 0) this.saveData();
+    return deleted;
   }
 
-  // Prepare method for compatibility
+  allUserData(): Array<UserData & { site_name: string; site_category: string; site_enabled: number; site_url: string }> {
+    return this.userData.map(item => {
+      const site = this.getSite(item.site_id);
+      return {
+        ...item,
+        site_name: site?.custom_name || site?.name || '',
+        site_category: site?.category || '',
+        site_enabled: site?.enabled || 0,
+        site_url: site?.site_url || '',
+      };
+    });
+  }
+  getUserDataBySiteId(siteId: number): UserData | undefined {
+    return this.userData.find(item => item.site_id === siteId);
+  }
+  upsertUserData(
+    siteId: number,
+    payload: Partial<Omit<UserData, 'id' | 'site_id' | 'updated_at'>> & { updated_at?: string },
+  ): UserData {
+    const existingIndex = this.userData.findIndex(item => item.site_id === siteId);
+    const now = payload.updated_at || new Date().toISOString();
+    const base: UserData = {
+      id: existingIndex >= 0 ? this.userData[existingIndex].id : this.userDataIdCounter++,
+      site_id: siteId,
+      username: payload.username ?? null,
+      user_id: payload.user_id ?? null,
+      level_name: payload.level_name ?? null,
+      uploaded: normalizeNumber(payload.uploaded, 0),
+      downloaded: normalizeNumber(payload.downloaded, 0),
+      ratio: payload.ratio == null ? null : normalizeNumber(payload.ratio, 0),
+      true_uploaded: payload.true_uploaded == null ? null : normalizeNumber(payload.true_uploaded, 0),
+      true_downloaded: payload.true_downloaded == null ? null : normalizeNumber(payload.true_downloaded, 0),
+      true_ratio: payload.true_ratio == null ? null : normalizeNumber(payload.true_ratio, 0),
+      uploads: normalizeNumber(payload.uploads, 0),
+      seeding: normalizeNumber(payload.seeding, 0),
+      seeding_size: normalizeNumber(payload.seeding_size, 0),
+      bonus: normalizeNumber(payload.bonus, 0),
+      bonus_per_hour: normalizeNumber(payload.bonus_per_hour, 0),
+      invites: normalizeNumber(payload.invites, 0),
+      join_time: payload.join_time ?? null,
+      last_access_at: payload.last_access_at ?? null,
+      message_count: normalizeNumber(payload.message_count, 0),
+      status: payload.status ?? 'success',
+      updated_at: now,
+    };
+    if (existingIndex >= 0) this.userData[existingIndex] = base;
+    else this.userData.push(base);
+    this.userDataHistory.push({ ...base, history_id: this.userDataHistoryIdCounter++, snapshot_at: now });
+    this.saveData();
+    return base;
+  }
+  getUserDataHistoryBySiteId(siteId: number): UserDataHistory[] {
+    return this.userDataHistory
+      .filter(item => item.site_id === siteId)
+      .sort((a, b) => new Date(b.snapshot_at).getTime() - new Date(a.snapshot_at).getTime());
+  }
+
+  exec(_sql: string): void {}
   prepare(sql: string): any {
     return {
       all: (...params: any[]) => {
-        // Debug: log the SQL and first check
         if (sql.includes('SELECT r.')) {
-          console.log(`[DEBUG ALL] SQL with SELECT r. detected, checking JOIN condition...`);
-          console.log(`[DEBUG ALL] SQL: ${sql.substring(0, 100)}`);
-          console.log(`[DEBUG ALL] includes 'JOIN sources s': ${sql.includes('JOIN sources s')}`);
-        }
-        
-        if (sql.includes('SELECT * FROM sources')) {
-          return this.sources;
-        } else if (sql.includes('JOIN sources s')) {
-          // Handle JOIN query for resources with source info
-          // params: [sourceId?, category?, search?, limit, offset]
-          console.log(`[DEBUG JOIN] total resources=${this.resources.length}, params=${JSON.stringify(params)}`);
-          
-          // Build results with source info
           let results = this.resources.map(r => {
             const src = this.sources.find(s => s.id === r.source_id);
-            return {
-              ...r,
-              source_name: src?.name || '',
-              // Use item's category if present, else fall back to source category
-              category: r.category || src?.category || ''
-            };
+            return { ...r, source_name: src?.name || '', category: r.category || src?.category || '' };
           });
-          
-          console.log(`[DEBUG JOIN] after map: ${results.length}`);
-
-          // Filter by source_id if present (always first param if exists)
           const hasSourceIdFilter = sql.includes('r.source_id = ?');
           const hasCategoryFilter = sql.includes('s.category = ?');
           const hasSearchFilter = sql.includes('title LIKE ?');
-          
+          const hasFreeTagFilter = sql.includes('r.free_tag = ?');
+          const titleLikeCount = (sql.match(/r\.title LIKE \?/g) || []).length;
           let paramIdx = 0;
-          
-          if (hasSourceIdFilter && params[paramIdx] !== undefined && params[paramIdx] !== null) {
+          if (hasSourceIdFilter && params[paramIdx] != null) {
             const sid = Number(params[paramIdx]);
-            if (!isNaN(sid)) {
-              results = results.filter(r => r.source_id === sid);
-              console.log(`[DEBUG JOIN] after source_id filter (${sid}): ${results.length}`);
+            results = results.filter(r => r.source_id === sid);
+            paramIdx++;
+          }
+          if (hasCategoryFilter && params[paramIdx] != null) {
+            const category = String(params[paramIdx]);
+            results = results.filter(r => r.category === category);
+            paramIdx++;
+          }
+          if (hasSearchFilter && titleLikeCount > 0) {
+            for (let index = 0; index < titleLikeCount; index++) {
+              const search = String(params[paramIdx]).replace(/%/g, '').toLowerCase();
+              results = results.filter(r => r.title.toLowerCase().includes(search));
+              paramIdx++;
             }
           }
-          paramIdx++;
-          
-          if (hasCategoryFilter && params[paramIdx] !== undefined && params[paramIdx] !== null) {
-            const cat = String(params[paramIdx]);
-            if (cat) {
-              results = results.filter(r => r.category === cat);
-              console.log(`[DEBUG JOIN] after category filter (${cat}): ${results.length}`);
-            }
+          if (hasFreeTagFilter && params[paramIdx] != null) {
+            const freeTag = String(params[paramIdx]).toLowerCase();
+            results = results.filter(r => (r.free_tag || '').toLowerCase() === freeTag);
           }
-          paramIdx++;
-          
-          if (hasSearchFilter && params[paramIdx] !== undefined && params[paramIdx] !== null) {
-            const search = String(params[paramIdx]).replace(/%/g, '');
-            if (search) {
-              results = results.filter(r => r.title.toLowerCase().includes(search.toLowerCase()));
-              console.log(`[DEBUG JOIN] after search filter (${search}): ${results.length}`);
-            }
-          }
-
-          // Apply sorting
           const sortMatch = sql.match(/ORDER BY r\.(\w+)\s+(ASC|DESC)/i);
           if (sortMatch) {
             const col = sortMatch[1] as keyof typeof results[0];
@@ -261,106 +521,79 @@ class InMemoryDB {
               if (aVal == null && bVal == null) return 0;
               if (aVal == null) return asc ? 1 : -1;
               if (bVal == null) return asc ? -1 : 1;
-              if (typeof aVal === 'string' && typeof bVal === 'string') {
-                return asc ? aVal.localeCompare(bVal) : bVal.localeCompare(aVal);
-              }
+              if (typeof aVal === 'string' && typeof bVal === 'string') return asc ? aVal.localeCompare(bVal) : bVal.localeCompare(aVal);
               return asc ? Number(aVal) - Number(bVal) : Number(bVal) - Number(aVal);
             });
           }
-
-          // Apply LIMIT and OFFSET - they are ALWAYS the last two params
           if (params.length >= 2) {
             const limit = Number(params[params.length - 2]);
             const offset = Number(params[params.length - 1]);
-            console.log(`[DEBUG JOIN] slice(${offset}, ${offset + limit}) from ${results.length}`);
-            if (!isNaN(limit) && !isNaN(offset)) {
-              results = results.slice(offset, offset + limit);
-            }
+            results = results.slice(offset, offset + limit);
           }
-          
-          console.log(`[DEBUG JOIN] returning ${results.length} results`);
           return results;
-        } else if (sql.includes('SELECT * FROM resources')) {
-          return this.resources;
-        } else if (sql.includes('SELECT * FROM settings')) {
-          return this.settings;
-        } else if (sql.includes('SELECT * FROM sources WHERE enabled = 1')) {
-          return this.sources.filter(source => source.enabled === 1);
         }
+        if (sql.includes('SELECT * FROM sources WHERE enabled = 1')) return this.sources.filter(source => source.enabled === 1);
+        if (sql.includes('SELECT * FROM sources')) return this.sources;
+        if (sql.includes('SELECT id, category FROM sources')) {
+          return this.sources.map(source => ({ id: source.id, category: source.category }));
+        }
+        if (sql.includes('SELECT category FROM sources')) {
+          return this.sources.map(source => ({ category: source.category }));
+        }
+        if (sql.includes('SELECT * FROM sites')) return this.sites.map(normalizeSite);
+        if (sql.includes('SELECT * FROM resources')) return this.resources;
+        if (sql.includes('SELECT * FROM settings')) return this.settings;
         return [];
       },
       get: (...params: any[]) => {
-        if (sql.includes('SELECT value FROM settings WHERE key =')) {
-          const key = params[0];
-          return { value: this.getSetting(key)?.value };
-        } else if (sql.includes('SELECT * FROM sources WHERE id =')) {
-          const id = params[0];
-          return this.getSource(id);
-        } else if (sql.includes('SELECT * FROM resources WHERE id =')) {
-          const id = params[0];
-          return this.getResource(id);
-        } else if (sql.includes('SELECT id FROM resources WHERE source_id = ? AND (guid = ? OR link = ?)')) {
-          // Handle resource existence check
+        if (sql.includes("SELECT value FROM settings WHERE key =")) return { value: this.getSetting(params[0])?.value };
+        if (sql.includes('SELECT * FROM settings WHERE key =')) return this.getSetting(params[0]);
+        if (sql.includes('SELECT * FROM sources WHERE id =')) return this.getSource(params[0]);
+        if (sql.includes('SELECT * FROM resources WHERE id =')) return this.getResource(params[0]);
+        if (sql.includes('SELECT id FROM resources WHERE source_id = ? AND (guid = ? OR link = ?)')) {
           const [sourceId, guid, link] = params;
-          const existing = this.resources.find(r => 
-            r.source_id === sourceId && (r.guid === guid || r.link === link)
-          );
+          const existing = this.resources.find(r => r.source_id === sourceId && (r.guid === guid || r.link === link));
           return existing ? { id: existing.id } : null;
-        } else if (sql.includes('SELECT COUNT(*) as total')) {
-          // Handle COUNT queries
+        }
+        if (sql.includes('SELECT COUNT(*) as total')) {
           if (sql.includes('FROM resources')) {
-            let filteredResources = this.resources;
-            // Apply filters if present
-            if (sql.includes('WHERE')) {
-              // Simple filtering based on source_id or category
-              if (sql.includes('source_id =')) {
-                const sourceId = params.find(p => typeof p === 'number');
-                if (sourceId) {
-                  filteredResources = filteredResources.filter(r => r.source_id === sourceId);
-                }
-              }
-              if (sql.includes('category =')) {
-                const category = params.find(p => typeof p === 'string');
-                if (category) {
-                  filteredResources = filteredResources.filter(r => {
-                    const source = this.sources.find(s => s.id === r.source_id);
-                    return source?.category === category;
-                  });
-                }
-              }
-              if (sql.includes('title LIKE')) {
-                const search = params.find(p => typeof p === 'string' && p.includes('%'));
-                if (search) {
-                  const searchTerm = search.replace(/%/g, '');
-                  filteredResources = filteredResources.filter(r => r.title.includes(searchTerm));
-                }
-              }
+            let filtered = this.resources;
+            let paramIdx = 0;
+            if (sql.includes('r.source_id = ?') && params[paramIdx] != null) {
+              const sourceId = Number(params[paramIdx]);
+              filtered = filtered.filter(r => r.source_id === sourceId);
+              paramIdx++;
             }
-            return { total: filteredResources.length };
-          } else if (sql.includes('FROM sources')) {
-            return { total: this.sources.length };
+            if (sql.includes('s.category = ?') && params[paramIdx] != null) {
+              const category = String(params[paramIdx]);
+              filtered = filtered.filter(r => {
+                const source = this.sources.find(s => s.id === r.source_id);
+                return source?.category === category;
+              });
+              paramIdx++;
+            }
+            const titleLikeCount = (sql.match(/r\.title LIKE \?/g) || []).length;
+            for (let index = 0; index < titleLikeCount; index++) {
+              const search = String(params[paramIdx] ?? '').replace(/%/g, '').toLowerCase();
+              filtered = filtered.filter(r => r.title.toLowerCase().includes(search));
+              paramIdx++;
+            }
+            if (sql.includes('r.free_tag = ?') && params[paramIdx] != null) {
+              const freeTag = String(params[paramIdx]).toLowerCase();
+              filtered = filtered.filter(r => (r.free_tag || '').toLowerCase() === freeTag);
+            }
+            return { total: filtered.length };
           }
+          if (sql.includes('FROM sources')) return { total: this.sources.length };
           return { total: 0 };
-        } else if (sql.includes('SELECT COUNT(*) as count')) {
-          // Handle COUNT queries with count alias
-          if (sql.includes('FROM sources')) {
-            return { count: this.sources.length };
-          } else if (sql.includes('FROM resources')) {
-            // Check if there's a WHERE clause
-            if (sql.includes('WHERE')) {
-              // For today count, we need to filter
-              if (sql.includes('created_at >=')) {
-                const dateStr = params[0];
-                if (dateStr) {
-                  const date = new Date(dateStr);
-                  const filtered = this.resources.filter(r => {
-                    const created = new Date(r.created_at);
-                    return created >= date;
-                  });
-                  return { count: filtered.length };
-                }
-              }
-              return { count: this.resources.length };
+        }
+        if (sql.includes('SELECT COUNT(*) as count')) {
+          if (sql.includes('FROM sources')) return { count: this.sources.length };
+          if (sql.includes('FROM sites')) return { count: this.sites.length };
+          if (sql.includes('FROM resources')) {
+            if (sql.includes('created_at >=')) {
+              const date = new Date(params[0]);
+              return { count: this.resources.filter(r => new Date(r.created_at) >= date).length };
             }
             return { count: this.resources.length };
           }
@@ -373,88 +606,142 @@ class InMemoryDB {
           const [name, url, category, fetch_interval, enabled] = params;
           this.addSource({ name, url, category, fetch_interval, enabled });
           return { lastInsertRowid: this.sourceIdCounter - 1 };
-        } else if (sql.includes('INSERT INTO settings')) {
-          // Handle INSERT INTO settings with ON CONFLICT (upsert)
+        }
+        if (sql.includes('INSERT INTO settings')) {
           const [key, value] = params;
-          const existingIndex = this.settings.findIndex(s => s.key === key);
-          if (existingIndex >= 0) {
-            this.settings[existingIndex].value = value;
-          } else {
-            this.settings.push({ key, value });
-          }
+          this.updateSetting(key, value);
           return { lastInsertRowid: 0 };
-        } else if (sql.includes('UPDATE sources')) {
+        }
+        if (sql.includes('UPDATE sources')) {
+          if (sql.includes('SET created_at = created_at WHERE id = ?')) {
+            return { changes: this.getSource(params[0]) ? 1 : 0 };
+          }
           const [name, url, category, fetch_interval, enabled, id] = params;
           this.updateSource(id, { name, url, category, fetch_interval, enabled });
-        } else if (sql.includes('DELETE FROM sources')) {
+          return { changes: 1 };
+        }
+        if (sql.includes('DELETE FROM sources')) {
           const [id] = params;
-          this.deleteSource(id);
-        } else if (sql.includes('INSERT INTO resources')) {
-          const [source_id, title, link, guid, pub_date, seeders, leechers, downloads, free_tag, size, subtitle, poster_url, category, description] = params;
-          this.addResource({ source_id, title, link, guid, pub_date, seeders, leechers, downloads, free_tag, size, subtitle, poster_url, category, description });
-        } else if (sql.includes('DELETE FROM resources')) {
+          return { changes: this.deleteSource(id) ? 1 : 0 };
+        }
+        if (sql.includes('INSERT INTO resources')) {
+          const [source_id, title, translated_name, link, guid, pub_date, seeders, leechers, downloads, free_tag, size, subtitle, poster_url, category, description, description_html] = params;
+          this.addResource({ source_id, title, translated_name, link, guid, pub_date, seeders, leechers, downloads, free_tag, size, subtitle, poster_url, category, description, description_html });
+          return { changes: 1 };
+        }
+        if (sql.includes('DELETE FROM resources')) {
           if (sql.includes('WHERE id =')) {
             const [id] = params;
-            this.deleteResource(id);
-          } else if (sql.includes('WHERE source_id =')) {
-            const [source_id] = params;
-            this.deleteResourcesBySourceId(source_id);
+            return { changes: this.deleteResource(id) ? 1 : 0 };
           }
-        } else if (sql.includes('UPDATE settings')) {
+          if (sql.includes('WHERE source_id =')) {
+            const [source_id] = params;
+            return { changes: this.deleteResourcesBySourceId(source_id) };
+          }
+          if (sql.includes('WHERE created_at < ?')) {
+            const [cutoff] = params;
+            const initialLength = this.resources.length;
+            this.resources = this.resources.filter(resource => {
+              if (!resource.created_at) return true;
+              return new Date(resource.created_at).getTime() >= new Date(cutoff).getTime();
+            });
+            this.saveData();
+            return { changes: initialLength - this.resources.length };
+          }
+          if (!sql.includes('WHERE')) {
+            const deleted = this.resources.length;
+            this.resources = [];
+            this.saveData();
+            return { changes: deleted };
+          }
+        }
+        if (sql.includes('UPDATE resources')) {
+          const [translated_name, subtitle, poster_url, category, description, description_html, id] = params;
+          const updated = this.updateResource(id, {
+            translated_name: translated_name ?? undefined,
+            subtitle: subtitle ?? undefined,
+            poster_url: poster_url ?? undefined,
+            category: category ?? undefined,
+            description: description ?? undefined,
+            description_html: description_html ?? undefined,
+          });
+          return { changes: updated ? 1 : 0 };
+        }
+        if (sql.includes('UPDATE settings')) {
           const [value, key] = params;
           this.updateSetting(key, value);
+          return { changes: 1 };
         }
         return { changes: 1 };
       },
     };
   }
+  pragma(_sql: string): void {}
 
-  // Pragma method for compatibility
-  pragma(sql: string): void {
-    // No-op for in-memory implementation
-  }
-
-  // Load data from file
   private loadData(): void {
     try {
       if (existsSync(this.dbPath)) {
         const data = readFileSync(this.dbPath, 'utf-8');
         const state: DatabaseState = JSON.parse(data);
         this.sources = state.sources || [];
-        this.resources = state.resources || [];
+        this.sites = (state.sites || []).map(normalizeSite);
+        this.resources = (state.resources || []).map(normalizeResource);
         this.settings = state.settings || [];
+        this.users = state.users || [];
+        this.authSessions = state.authSessions || [];
+        this.userData = state.userData || [];
+        this.userDataHistory = state.userDataHistory || [];
         this.sourceIdCounter = state.sourceIdCounter || 1;
+        this.siteIdCounter = state.siteIdCounter || 1;
         this.resourceIdCounter = state.resourceIdCounter || 1;
+        this.userIdCounter = state.userIdCounter || 1;
+        this.userDataIdCounter = state.userDataIdCounter || 1;
+        this.userDataHistoryIdCounter = state.userDataHistoryIdCounter || 1;
         console.log(`Loaded data from ${this.dbPath}`);
       }
     } catch (error) {
       console.error('Error loading data:', error);
     }
   }
-
-  // Save data to file
   private saveData(): void {
     try {
       const state: DatabaseState = {
         sources: this.sources,
+        sites: this.sites.map(normalizeSite),
         resources: this.resources,
         settings: this.settings,
+        users: this.users,
+        authSessions: this.authSessions,
+        userData: this.userData,
+        userDataHistory: this.userDataHistory,
         sourceIdCounter: this.sourceIdCounter,
+        siteIdCounter: this.siteIdCounter,
         resourceIdCounter: this.resourceIdCounter,
+        userIdCounter: this.userIdCounter,
+        userDataIdCounter: this.userDataIdCounter,
+        userDataHistoryIdCounter: this.userDataHistoryIdCounter,
       };
       writeFileSync(this.dbPath, JSON.stringify(state, null, 2));
     } catch (error) {
       console.error('Error saving data:', error);
     }
   }
-
-  // Transaction method for compatibility
   transaction<T>(fn: (...args: any[]) => T): (...args: any[]) => T {
     return (...args: any[]) => {
       const result = fn(...args);
       this.saveData();
       return result;
     };
+  }
+
+  private ensureDefaultAdmin(): void {
+    const existingAdmin = this.getUserByUsername('admin');
+    if (existingAdmin) return;
+    this.createUser({
+      username: 'admin',
+      password_hash: hashPassword('admin@123'),
+      is_system: 1,
+    });
   }
 }
 

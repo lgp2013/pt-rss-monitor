@@ -1,550 +1,683 @@
 <script setup lang="ts">
-import { ref, onMounted, computed } from 'vue';
-import { resourcesApi } from '../api';
+import { computed, onMounted, ref } from 'vue';
+import { sitesApi, userDataApi, type Site, type UserData, type UserDataHistory } from '../api';
 
-const resources = ref<any[]>([]);
-const sources = ref<any[]>([]);
-const loading = ref(true);
+interface UserDataRow extends Site {
+  userData?: UserData;
+}
 
-// Stats
-const stats = ref({
-  total: 0,
-  today: 0,
-  thisWeek: 0,
-  thisMonth: 0,
+const loading = ref(false);
+const saving = ref(false);
+const sources = ref<Site[]>([]);
+const userData = ref<UserData[]>([]);
+const history = ref<UserDataHistory[]>([]);
+const search = ref('');
+const category = ref('');
+const status = ref('');
+const showEditModal = ref(false);
+const showHistoryModal = ref(false);
+const syncingSourceId = ref<number | null>(null);
+const activeRow = ref<UserDataRow | null>(null);
+
+const form = ref({
+  username: '',
+  user_id: '',
+  level_name: '',
+  uploaded: 0,
+  downloaded: 0,
+  ratio: '',
+  true_uploaded: '',
+  true_downloaded: '',
+  true_ratio: '',
+  uploads: 0,
+  seeding: 0,
+  seeding_size: 0,
+  bonus: 0,
+  bonus_per_hour: 0,
+  invites: 0,
+  join_time: '',
+  last_access_at: '',
+  message_count: 0,
+  status: 'success',
 });
 
-// By source
-const bySource = computed(() => {
-  const map: Record<string, number> = {};
-  for (const r of resources.value) {
-    const name = r.source_name || '未知';
-    map[name] = (map[name] || 0) + 1;
-  }
-  return Object.entries(map)
-    .map(([name, count]) => ({ name, count }))
-    .sort((a, b) => b.count - a.count);
+const rows = computed<UserDataRow[]>(() => {
+  const dataMap = new Map(userData.value.map(item => [item.site_id, item]));
+  return sources.value.map(source => ({
+    ...source,
+    userData: dataMap.get(source.id),
+  }));
 });
 
-// By resolution
-const byResolution = computed(() => {
-  const map: Record<string, number> = {
-    '2160p': 0,
-    '1080p': 0,
-    '720p': 0,
-    '480p': 0,
-    'Other': 0,
+const categories = computed(() => [...new Set(rows.value.map(item => item.category).filter(Boolean))]);
+
+const filteredRows = computed(() => {
+  const keyword = search.value.trim().toLowerCase();
+  return rows.value.filter(item => {
+    const matchesKeyword =
+      !keyword ||
+      [item.custom_name, item.name, item.site_url, item.userData?.username, item.userData?.level_name]
+        .filter(Boolean)
+        .some(value => String(value).toLowerCase().includes(keyword));
+
+    const matchesCategory = !category.value || item.category === category.value;
+    const matchesStatus = !status.value || (item.userData?.status || 'missing') === status.value;
+    return matchesKeyword && matchesCategory && matchesStatus;
+  });
+});
+
+const summary = computed(() => {
+  const items = userData.value;
+  return {
+    configuredSites: sources.value.length,
+    dataSites: items.length,
+    uploaded: items.reduce((sum, item) => sum + (item.uploaded || 0), 0),
+    downloaded: items.reduce((sum, item) => sum + (item.downloaded || 0), 0),
+    seedingSize: items.reduce((sum, item) => sum + (item.seeding_size || 0), 0),
+    bonus: items.reduce((sum, item) => sum + (item.bonus || 0), 0),
   };
-  
-  for (const r of resources.value) {
-    const title = r.title.toLowerCase();
-    if (title.includes('2160p')) map['2160p']++;
-    else if (title.includes('1080p')) map['1080p']++;
-    else if (title.includes('720p')) map['720p']++;
-    else if (title.includes('480p')) map['480p']++;
-    else map['Other']++;
-  }
-  
-  return Object.entries(map)
-    .map(([name, count]) => ({ name, count }))
-    .filter(x => x.count > 0);
 });
 
-// By free tag
-const byFreeTag = computed(() => {
-  const map: Record<string, number> = {
-    'FREE': 0,
-    '50%': 0,
-    '30%': 0,
-    'None': 0,
-  };
-  
-  for (const r of resources.value) {
-    if (r.free_tag === 'FREE') map['FREE']++;
-    else if (r.free_tag?.includes('%')) map[r.free_tag]++;
-    else map['None']++;
+function formatBytes(value: number | null | undefined): string {
+  const num = Number(value || 0);
+  if (!Number.isFinite(num) || num <= 0) return '0 B';
+  const units = ['B', 'KB', 'MB', 'GB', 'TB', 'PB'];
+  let size = num;
+  let index = 0;
+  while (size >= 1024 && index < units.length - 1) {
+    size /= 1024;
+    index++;
   }
-  
-  return Object.entries(map)
-    .map(([name, count]) => ({ name, count }))
-    .filter(x => x.count > 0);
-});
+  return `${size.toFixed(index === 0 ? 0 : 2)} ${units[index]}`;
+}
 
-// Total size by source
-const totalSizeBySource = computed(() => {
-  const map: Record<string, number> = {};
-  for (const r of resources.value) {
-    const name = r.source_name || '未知';
-    const sizeStr = r.size || '0';
-    const size = parseFloat(sizeStr) || 0;
-    map[name] = (map[name] || 0) + size;
-  }
-  return Object.entries(map)
-    .map(([name, size]) => ({ name, size: size.toFixed(2) }))
-    .sort((a, b) => parseFloat(b.size) - parseFloat(a.size));
-});
+function formatDate(value: string | null | undefined): string {
+  if (!value) return '-';
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? '-' : date.toLocaleString('zh-CN');
+}
 
-// Recent activity (last 7 days)
-const recentActivity = computed(() => {
-  const days: Record<string, number> = {};
-  const now = new Date();
-  
-  for (let i = 6; i >= 0; i--) {
-    const d = new Date(now);
-    d.setDate(d.getDate() - i);
-    const key = `${d.getMonth() + 1}/${d.getDate()}`;
-    days[key] = 0;
-  }
-  
-  for (const r of resources.value) {
-    const d = new Date(r.created_at);
-    const key = `${d.getMonth() + 1}/${d.getDate()}`;
-    if (key in days) {
-      days[key]++;
-    }
-  }
-  
-  return Object.entries(days).map(([date, count]) => ({ date, count }));
-});
+function formatRatio(value: number | null | undefined): string {
+  if (value == null) return '-';
+  if (!Number.isFinite(value)) return '∞';
+  return value.toFixed(2);
+}
 
-const maxActivityCount = computed(() => {
-  return Math.max(...recentActivity.value.map(x => x.count), 1);
-});
+function toNumberOrNull(value: string): number | null {
+  if (!value.trim()) return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
 
 async function loadData() {
   loading.value = true;
   try {
-    // Load resources
-    const data = await resourcesApi.list({ limit: 10000 });
-    resources.value = data.data;
-    
-    // Load sources
-    sources.value = await sourcesApi.list();
-    
-    // Calculate stats
-    const now = new Date();
-    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    const weekStart = new Date(todayStart);
-    weekStart.setDate(weekStart.getDate() - 7);
-    const monthStart = new Date(todayStart);
-    monthStart.setMonth(monthStart.getMonth() - 1);
-    
-    stats.value = {
-      total: resources.value.length,
-      today: resources.value.filter(r => new Date(r.created_at) >= todayStart).length,
-      thisWeek: resources.value.filter(r => new Date(r.created_at) >= weekStart).length,
-      thisMonth: resources.value.filter(r => new Date(r.created_at) >= monthStart).length,
-    };
-    
-  } catch (error) {
-    console.error('Failed to load data:', error);
+    const [sourceItems, dataItems] = await Promise.all([sitesApi.list(), userDataApi.list()]);
+    sources.value = sourceItems;
+    userData.value = dataItems;
   } finally {
     loading.value = false;
   }
 }
 
-// Get bar width percentage
-function getBarWidth(count: number, max: number): string {
-  return max > 0 ? `${(count / max * 100).toFixed(1)}%` : '0%';
+function openEdit(row: UserDataRow) {
+  activeRow.value = row;
+  const current = row.userData;
+  form.value = {
+    username: current?.username || '',
+    user_id: current?.user_id || '',
+    level_name: current?.level_name || '',
+    uploaded: current?.uploaded || 0,
+    downloaded: current?.downloaded || 0,
+    ratio: current?.ratio == null ? '' : String(current.ratio),
+    true_uploaded: current?.true_uploaded == null ? '' : String(current.true_uploaded),
+    true_downloaded: current?.true_downloaded == null ? '' : String(current.true_downloaded),
+    true_ratio: current?.true_ratio == null ? '' : String(current.true_ratio),
+    uploads: current?.uploads || 0,
+    seeding: current?.seeding || 0,
+    seeding_size: current?.seeding_size || 0,
+    bonus: current?.bonus || 0,
+    bonus_per_hour: current?.bonus_per_hour || 0,
+    invites: current?.invites || 0,
+    join_time: current?.join_time || '',
+    last_access_at: current?.last_access_at || '',
+    message_count: current?.message_count || 0,
+    status: current?.status || 'success',
+  };
+  showEditModal.value = true;
 }
 
-// Get chart bar height
-function getBarHeight(count: number): string {
-  return maxActivityCount.value > 0 ? `${(count / maxActivityCount.value * 100).toFixed(1)}%` : '0%';
+async function saveUserData() {
+  if (!activeRow.value) return;
+  saving.value = true;
+  try {
+    await userDataApi.save(activeRow.value.id, {
+      username: form.value.username || null,
+      user_id: form.value.user_id || null,
+      level_name: form.value.level_name || null,
+      uploaded: form.value.uploaded,
+      downloaded: form.value.downloaded,
+      ratio: toNumberOrNull(form.value.ratio),
+      true_uploaded: toNumberOrNull(form.value.true_uploaded),
+      true_downloaded: toNumberOrNull(form.value.true_downloaded),
+      true_ratio: toNumberOrNull(form.value.true_ratio),
+      uploads: form.value.uploads,
+      seeding: form.value.seeding,
+      seeding_size: form.value.seeding_size,
+      bonus: form.value.bonus,
+      bonus_per_hour: form.value.bonus_per_hour,
+      invites: form.value.invites,
+      join_time: form.value.join_time || null,
+      last_access_at: form.value.last_access_at || null,
+      message_count: form.value.message_count,
+      status: form.value.status,
+    });
+    showEditModal.value = false;
+    await loadData();
+  } finally {
+    saving.value = false;
+  }
 }
 
-onMounted(() => {
-  loadData();
-});
+async function openHistory(row: UserDataRow) {
+  activeRow.value = row;
+  history.value = await userDataApi.history(row.id);
+  showHistoryModal.value = true;
+}
+
+function openLogin(row: UserDataRow) {
+  const target = row.site_url;
+  if (!target) {
+    alert('该站点未配置网站地址');
+    return;
+  }
+  window.open(target, '_blank', 'noopener,noreferrer');
+}
+
+async function refreshUserData(row: UserDataRow) {
+  syncingSourceId.value = row.id;
+  try {
+      const result = await userDataApi.refresh(row.id);
+    if (result.need_login) {
+      if (result.site_url) {
+        window.open(result.site_url, '_blank', 'noopener,noreferrer');
+      }
+      alert('站点当前未登录或 Cookie 无效。已为你打开站点，请先登录后再点击刷新。');
+    } else if (!result.success) {
+      alert(result.error || '刷新失败');
+    }
+    await loadData();
+  } catch (error) {
+    alert(error instanceof Error ? error.message : '刷新失败');
+  } finally {
+    syncingSourceId.value = null;
+  }
+}
+
+function buildPoints(items: UserDataHistory[], field: 'uploaded' | 'downloaded' | 'bonus'): string {
+  if (items.length === 0) return '';
+  const ordered = [...items].reverse();
+  const values = ordered.map(item => Number(item[field] || 0));
+  const max = Math.max(...values, 1);
+  return values
+    .map((value, index) => {
+      const x = ordered.length === 1 ? 0 : (index / (ordered.length - 1)) * 300;
+      const y = 80 - (value / max) * 80;
+      return `${x},${y}`;
+    })
+    .join(' ');
+}
+
+onMounted(loadData);
 </script>
 
 <template>
-  <div class="statistics-page">
-    <h1 class="page-title">我的数据</h1>
-
-    <div v-if="loading" class="loading">
-      <div class="spinner"></div>
+  <div class="my-data-page">
+    <div class="page-header">
+      <div>
+        <h1 class="page-title">我的数据</h1>
+        <p class="page-subtitle">按站点维护账号数据，并自动记录每次保存的历史快照。</p>
+      </div>
+      <button class="btn" @click="loadData">刷新</button>
     </div>
 
-    <template v-else>
-      <!-- Overview Stats -->
-      <div class="stats-grid">
-        <div class="stat-card">
-          <div class="stat-label">总资源</div>
-          <div class="stat-value">{{ stats.total }}</div>
+    <div class="summary-grid">
+      <div class="summary-card">
+        <div class="summary-label">已配置站点</div>
+        <div class="summary-value">{{ summary.configuredSites }}</div>
+      </div>
+      <div class="summary-card">
+        <div class="summary-label">已录入数据</div>
+        <div class="summary-value">{{ summary.dataSites }}</div>
+      </div>
+      <div class="summary-card">
+        <div class="summary-label">总上传</div>
+        <div class="summary-value">{{ formatBytes(summary.uploaded) }}</div>
+      </div>
+      <div class="summary-card">
+        <div class="summary-label">总下载</div>
+        <div class="summary-value">{{ formatBytes(summary.downloaded) }}</div>
+      </div>
+      <div class="summary-card">
+        <div class="summary-label">总做种体积</div>
+        <div class="summary-value">{{ formatBytes(summary.seedingSize) }}</div>
+      </div>
+      <div class="summary-card">
+        <div class="summary-label">总魔力</div>
+        <div class="summary-value">{{ summary.bonus.toFixed(2) }}</div>
+      </div>
+    </div>
+
+    <div class="toolbar card">
+      <input v-model="search" class="input search-input" placeholder="搜索站点、用户名、等级" />
+      <select v-model="category" class="select">
+        <option value="">全部分类</option>
+        <option v-for="item in categories" :key="item" :value="item">{{ item }}</option>
+      </select>
+      <select v-model="status" class="select">
+        <option value="">全部状态</option>
+        <option value="success">正常</option>
+        <option value="warning">预警</option>
+        <option value="error">异常</option>
+        <option value="missing">未录入</option>
+      </select>
+    </div>
+
+    <div v-if="loading" class="loading"><div class="spinner"></div></div>
+
+    <div v-else class="card table-card">
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>站点</th>
+            <th>用户</th>
+            <th>等级</th>
+            <th>上传 / 下载</th>
+            <th>分享率</th>
+            <th>做种</th>
+            <th>魔力</th>
+            <th>加入时间</th>
+            <th>更新时间</th>
+            <th>操作</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="row in filteredRows" :key="row.id">
+            <td>
+              <div class="site-cell">
+                <strong>{{ row.custom_name || row.name }}</strong>
+                <span class="text-muted">{{ row.category || '未分类' }}</span>
+              </div>
+            </td>
+            <td>{{ row.userData?.username || '-' }}</td>
+            <td>{{ row.userData?.level_name || '-' }}</td>
+            <td>
+              <div class="stack-cell">
+                <span>↑ {{ formatBytes(row.userData?.uploaded) }}</span>
+                <span>↓ {{ formatBytes(row.userData?.downloaded) }}</span>
+              </div>
+            </td>
+            <td>{{ formatRatio(row.userData?.ratio) }}</td>
+            <td>
+              <div class="stack-cell">
+                <span>{{ row.userData?.seeding ?? 0 }} 个</span>
+                <span>{{ formatBytes(row.userData?.seeding_size) }}</span>
+              </div>
+            </td>
+            <td>
+              <div class="stack-cell">
+                <span>{{ (row.userData?.bonus ?? 0).toFixed(2) }}</span>
+                <span class="text-muted">{{ (row.userData?.bonus_per_hour ?? 0).toFixed(2) }}/h</span>
+              </div>
+            </td>
+            <td>{{ formatDate(row.userData?.join_time) }}</td>
+            <td>
+              <span :class="['status-badge', row.userData?.status || 'missing']">
+                {{ row.userData?.status || 'missing' }}
+              </span>
+              <div class="text-muted">{{ formatDate(row.userData?.updated_at) }}</div>
+            </td>
+            <td>
+              <div class="action-row">
+                <button class="btn btn-small" @click="openEdit(row)">编辑</button>
+                <button class="btn btn-small" @click="openHistory(row)">历史</button>
+                <button class="btn btn-small" @click="openLogin(row)">打开站点</button>
+                <button class="btn btn-small btn-primary" :disabled="syncingSourceId === row.id" @click="refreshUserData(row)">
+                  {{ syncingSourceId === row.id ? '刷新中...' : '刷新抓取' }}
+                </button>
+              </div>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div v-if="showEditModal && activeRow" class="modal-overlay" @click.self="showEditModal = false">
+      <div class="modal large-modal">
+      <div class="modal-header">
+          <h2>{{ activeRow.custom_name || activeRow.name }} - 数据编辑</h2>
+          <button class="modal-close" @click="showEditModal = false">&times;</button>
         </div>
-        <div class="stat-card highlight">
-          <div class="stat-label">今日新增</div>
-          <div class="stat-value">{{ stats.today }}</div>
+        <div class="modal-grid">
+          <div class="form-group"><label>用户名</label><input v-model="form.username" class="input" /></div>
+          <div class="form-group"><label>用户 ID</label><input v-model="form.user_id" class="input" /></div>
+          <div class="form-group"><label>等级</label><input v-model="form.level_name" class="input" /></div>
+          <div class="form-group">
+            <label>状态</label>
+            <select v-model="form.status" class="select">
+              <option value="success">success</option>
+              <option value="warning">warning</option>
+              <option value="error">error</option>
+            </select>
+          </div>
+          <div class="form-group"><label>上传字节</label><input v-model.number="form.uploaded" type="number" class="input" /></div>
+          <div class="form-group"><label>下载字节</label><input v-model.number="form.downloaded" type="number" class="input" /></div>
+          <div class="form-group"><label>分享率</label><input v-model="form.ratio" class="input" /></div>
+          <div class="form-group"><label>真实分享率</label><input v-model="form.true_ratio" class="input" /></div>
+          <div class="form-group"><label>真实上传字节</label><input v-model="form.true_uploaded" class="input" /></div>
+          <div class="form-group"><label>真实下载字节</label><input v-model="form.true_downloaded" class="input" /></div>
+          <div class="form-group"><label>发布数</label><input v-model.number="form.uploads" type="number" class="input" /></div>
+          <div class="form-group"><label>做种数</label><input v-model.number="form.seeding" type="number" class="input" /></div>
+          <div class="form-group"><label>做种体积字节</label><input v-model.number="form.seeding_size" type="number" class="input" /></div>
+          <div class="form-group"><label>魔力</label><input v-model.number="form.bonus" type="number" class="input" /></div>
+          <div class="form-group"><label>每小时魔力</label><input v-model.number="form.bonus_per_hour" type="number" class="input" /></div>
+          <div class="form-group"><label>邀请数</label><input v-model.number="form.invites" type="number" class="input" /></div>
+          <div class="form-group"><label>未读消息</label><input v-model.number="form.message_count" type="number" class="input" /></div>
+          <div class="form-group"><label>加入时间</label><input v-model="form.join_time" type="datetime-local" class="input" /></div>
+          <div class="form-group"><label>最后访问</label><input v-model="form.last_access_at" type="datetime-local" class="input" /></div>
         </div>
-        <div class="stat-card">
-          <div class="stat-label">本周新增</div>
-          <div class="stat-value">{{ stats.thisWeek }}</div>
-        </div>
-        <div class="stat-card">
-          <div class="stat-label">本月新增</div>
-          <div class="stat-value">{{ stats.thisMonth }}</div>
+        <div class="modal-footer">
+          <button class="btn" @click="showEditModal = false">取消</button>
+          <button class="btn btn-primary" :disabled="saving" @click="saveUserData">
+            {{ saving ? '保存中...' : '保存并记录快照' }}
+          </button>
         </div>
       </div>
+    </div>
 
-      <!-- Recent Activity Chart -->
-      <div class="chart-card">
-        <h2 class="chart-title">最近7天活动</h2>
-        <div class="bar-chart">
-          <div 
-            v-for="day in recentActivity" 
-            :key="day.date" 
-            class="bar-column"
-          >
-            <div class="bar-wrapper">
-              <div 
-                class="bar" 
-                :style="{ height: getBarHeight(day.count) }"
-              >
-                <span class="bar-value">{{ day.count }}</span>
-              </div>
+    <div v-if="showHistoryModal && activeRow" class="modal-overlay" @click.self="showHistoryModal = false">
+      <div class="modal history-modal">
+        <div class="modal-header">
+          <h2>{{ activeRow.custom_name || activeRow.name }} - 历史快照</h2>
+          <button class="modal-close" @click="showHistoryModal = false">&times;</button>
+        </div>
+        <div v-if="history.length" class="history-content">
+          <div class="chart-box">
+            <svg viewBox="0 0 300 80" class="trend-chart">
+              <polyline :points="buildPoints(history, 'uploaded')" class="trend-line upload"></polyline>
+              <polyline :points="buildPoints(history, 'downloaded')" class="trend-line download"></polyline>
+              <polyline :points="buildPoints(history, 'bonus')" class="trend-line bonus"></polyline>
+            </svg>
+            <div class="chart-legend">
+              <span><i class="legend-dot upload"></i>上传</span>
+              <span><i class="legend-dot download"></i>下载</span>
+              <span><i class="legend-dot bonus"></i>魔力</span>
             </div>
-            <div class="bar-label">{{ day.date }}</div>
+          </div>
+          <div class="history-list">
+            <div v-for="item in history" :key="item.history_id" class="history-item">
+              <div><strong>{{ formatDate(item.snapshot_at) }}</strong></div>
+              <div>上传 {{ formatBytes(item.uploaded) }} / 下载 {{ formatBytes(item.downloaded) }}</div>
+              <div>分享率 {{ formatRatio(item.ratio) }} / 魔力 {{ item.bonus.toFixed(2) }}</div>
+            </div>
           </div>
         </div>
+        <div v-else class="empty-state">暂无历史快照</div>
       </div>
-
-      <div class="charts-row">
-        <!-- By Source -->
-        <div class="chart-card">
-          <h2 class="chart-title">按站点分布</h2>
-          <div class="horizontal-bars">
-            <div 
-              v-for="item in bySource" 
-              :key="item.name" 
-              class="bar-item"
-            >
-              <div class="bar-info">
-                <span class="bar-name">{{ item.name }}</span>
-                <span class="bar-count">{{ item.count }}</span>
-              </div>
-              <div class="bar-track">
-                <div 
-                  class="bar-fill" 
-                  :style="{ width: getBarWidth(item.count, bySource[0]?.count || 1) }"
-                ></div>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <!-- By Resolution -->
-        <div class="chart-card">
-          <h2 class="chart-title">按清晰度分布</h2>
-          <div class="pie-chart-container">
-            <div class="pie-chart">
-              <div 
-                v-for="(item, idx) in byResolution" 
-                :key="item.name"
-                class="pie-segment"
-                :class="`color-${idx + 1}`"
-                :style="{
-                  '--offset': getPieOffset(idx),
-                  '--total': byResolution.reduce((sum, x) => sum + x.count, 0)
-                }"
-              >
-              </div>
-            </div>
-            <div class="pie-legend">
-              <div 
-                v-for="(item, idx) in byResolution" 
-                :key="item.name"
-                class="legend-item"
-              >
-                <span class="legend-color" :class="`color-${idx + 1}`"></span>
-                <span class="legend-name">{{ item.name }}</span>
-                <span class="legend-count">{{ item.count }}</span>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <!-- By Free Tag -->
-      <div class="chart-card">
-        <h2 class="chart-title">按折扣分布</h2>
-        <div class="horizontal-bars">
-          <div 
-            v-for="item in byFreeTag" 
-            :key="item.name" 
-            class="bar-item"
-          >
-            <div class="bar-info">
-              <span class="bar-name">{{ item.name === 'None' ? '无折扣' : item.name }}</span>
-              <span class="bar-count">{{ item.count }}</span>
-            </div>
-            <div class="bar-track">
-              <div 
-                class="bar-fill free" 
-                :style="{ width: getBarWidth(item.count, byFreeTag[0]?.count || 1) }"
-              ></div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <!-- Size by Source -->
-      <div class="chart-card">
-        <h2 class="chart-title">各站点资源大小估算</h2>
-        <div class="horizontal-bars">
-          <div 
-            v-for="item in totalSizeBySource" 
-            :key="item.name" 
-            class="bar-item"
-          >
-            <div class="bar-info">
-              <span class="bar-name">{{ item.name }}</span>
-              <span class="bar-count">{{ item.size }} GB</span>
-            </div>
-            <div class="bar-track">
-              <div 
-                class="bar-fill size" 
-                :style="{ width: getBarWidth(parseFloat(item.size), parseFloat(totalSizeBySource[0]?.size || '1')) }"
-              ></div>
-            </div>
-          </div>
-        </div>
-      </div>
-    </template>
+    </div>
   </div>
 </template>
 
 <style scoped>
-.statistics-page {
-  padding: 20px;
+.my-data-page {
   max-width: 1400px;
   margin: 0 auto;
 }
-
-.page-title {
-  font-size: 24px;
-  font-weight: 700;
-  margin-bottom: 24px;
-}
-
-.stats-grid {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
+.page-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
   gap: 16px;
-  margin-bottom: 24px;
+  margin-bottom: 20px;
 }
-
-.stat-card {
-  background: var(--color-bg-secondary);
-  padding: 20px;
-  border-radius: 8px;
-  text-align: center;
+.page-title {
+  font-size: 28px;
+  margin: 0 0 6px;
 }
-
-.stat-card.highlight {
-  background: var(--color-accent);
-  color: white;
-}
-
-.stat-card.highlight .stat-label {
-  color: rgba(255,255,255,0.8);
-}
-
-.stat-label {
-  font-size: 13px;
+.page-subtitle {
+  margin: 0;
   color: var(--color-text-secondary);
-  margin-bottom: 8px;
 }
-
-.stat-value {
-  font-size: 32px;
-  font-weight: 700;
-  color: var(--color-text-primary);
-}
-
-.chart-card {
-  background: var(--color-bg-secondary);
-  border-radius: 8px;
-  padding: 20px;
+.summary-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
   margin-bottom: 16px;
 }
-
-.chart-title {
-  font-size: 16px;
-  font-weight: 600;
-  margin-bottom: 20px;
-  color: var(--color-text-primary);
+.summary-card,
+.card {
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  padding: 16px;
 }
-
-.charts-row {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 16px;
-}
-
-/* Bar Chart */
-.bar-chart {
-  display: flex;
-  justify-content: space-around;
-  align-items: flex-end;
-  height: 200px;
-  padding-top: 20px;
-}
-
-.bar-column {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  flex: 1;
-}
-
-.bar-wrapper {
-  height: 160px;
-  display: flex;
-  align-items: flex-end;
-  width: 100%;
-  justify-content: center;
-}
-
-.bar {
-  width: 60%;
-  max-width: 40px;
-  background: var(--color-accent);
-  border-radius: 4px 4px 0 0;
-  position: relative;
-  min-height: 2px;
-  transition: height 0.3s;
-}
-
-.bar-value {
-  position: absolute;
-  top: -20px;
-  left: 50%;
-  transform: translateX(-50%);
-  font-size: 12px;
+.summary-label {
   color: var(--color-text-secondary);
+  font-size: 13px;
+  margin-bottom: 8px;
 }
-
-.bar-label {
-  margin-top: 8px;
-  font-size: 12px;
-  color: var(--color-text-secondary);
+.summary-value {
+  font-size: 24px;
+  font-weight: 700;
 }
-
-/* Horizontal Bars */
-.horizontal-bars {
+.toolbar {
   display: flex;
-  flex-direction: column;
   gap: 12px;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
 }
-
-.bar-item {
+.search-input {
+  flex: 1;
+  min-width: 220px;
+}
+.table-card {
+  overflow-x: auto;
+}
+.data-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+.data-table th,
+.data-table td {
+  padding: 12px 10px;
+  border-bottom: 1px solid var(--color-border);
+  text-align: left;
+  vertical-align: top;
+}
+.data-table th {
+  color: var(--color-text-secondary);
+  font-size: 13px;
+  white-space: nowrap;
+}
+.site-cell,
+.stack-cell,
+.action-row {
   display: flex;
   flex-direction: column;
   gap: 4px;
 }
-
-.bar-info {
+.action-row {
+  flex-direction: row;
+}
+.text-muted {
+  color: var(--color-text-secondary);
+  font-size: 12px;
+}
+.status-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  text-transform: uppercase;
+}
+.status-badge.success {
+  background: rgba(34, 197, 94, 0.12);
+  color: #15803d;
+}
+.status-badge.warning {
+  background: rgba(245, 158, 11, 0.12);
+  color: #b45309;
+}
+.status-badge.error,
+.status-badge.missing {
+  background: rgba(239, 68, 68, 0.12);
+  color: #b91c1c;
+}
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 200;
+  padding: 20px;
+}
+.modal {
+  width: min(1100px, 100%);
+  max-height: 90vh;
+  overflow: auto;
+  background: var(--color-bg-primary);
+  border-radius: 16px;
+  border: 1px solid var(--color-border);
+  padding: 20px;
+}
+.history-modal {
+  width: min(900px, 100%);
+}
+.modal-header {
   display: flex;
   justify-content: space-between;
-  font-size: 13px;
+  align-items: center;
+  margin-bottom: 16px;
 }
-
-.bar-name {
-  color: var(--color-text-primary);
-}
-
-.bar-count {
+.modal-close {
+  border: none;
+  background: transparent;
+  font-size: 28px;
+  cursor: pointer;
   color: var(--color-text-secondary);
 }
-
-.bar-track {
-  height: 8px;
-  background: var(--color-bg-tertiary);
-  border-radius: 4px;
-  overflow: hidden;
+.modal-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px;
 }
-
-.bar-fill {
-  height: 100%;
-  background: var(--color-accent);
-  border-radius: 4px;
-  transition: width 0.3s;
-}
-
-.bar-fill.free {
-  background: var(--color-success);
-}
-
-.bar-fill.size {
-  background: #8b5cf6;
-}
-
-/* Pie Chart */
-.pie-chart-container {
-  display: flex;
-  align-items: center;
-  gap: 24px;
-}
-
-.pie-chart {
-  width: 120px;
-  height: 120px;
-  border-radius: 50%;
-  background: conic-gradient(
-    var(--color-accent) calc(var(--offset) / var(--total) * 360deg),
-    var(--color-accent) calc((var(--offset) + var(--count)) / var(--total) * 360deg),
-    var(--color-bg-tertiary) calc((var(--offset) + var(--count)) / var(--total) * 360deg)
-  );
-  position: relative;
-}
-
-.pie-segment {
-  position: absolute;
-  width: 100%;
-  height: 100%;
-}
-
-.pie-legend {
+.form-group {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 6px;
 }
-
-.legend-item {
+.modal-footer {
   display: flex;
-  align-items: center;
-  gap: 8px;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 18px;
+}
+.history-content {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+.chart-box,
+.history-list {
+  background: var(--color-bg-secondary);
+  border-radius: 12px;
+  padding: 14px;
+}
+.trend-chart {
+  width: 100%;
+  height: 120px;
+}
+.trend-line {
+  fill: none;
+  stroke-width: 3;
+}
+.trend-line.upload,
+.legend-dot.upload {
+  stroke: #2563eb;
+  background: #2563eb;
+}
+.trend-line.download,
+.legend-dot.download {
+  stroke: #dc2626;
+  background: #dc2626;
+}
+.trend-line.bonus,
+.legend-dot.bonus {
+  stroke: #16a34a;
+  background: #16a34a;
+}
+.chart-legend {
+  display: flex;
+  gap: 16px;
   font-size: 13px;
 }
-
-.legend-color {
-  width: 12px;
-  height: 12px;
-  border-radius: 2px;
+.legend-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  display: inline-block;
+  margin-right: 6px;
 }
-
-.legend-color.color-1 { background: #3b82f6; }
-.legend-color.color-2 { background: #10b981; }
-.legend-color.color-3 { background: #8b5cf6; }
-.legend-color.color-4 { background: #f59e0b; }
-.legend-color.color-5 { background: #6b7280; }
-
-.legend-name {
-  flex: 1;
-  color: var(--color-text-primary);
+.history-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
 }
-
-.legend-count {
+.history-item {
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--color-bg-primary);
+  border: 1px solid var(--color-border);
+  font-size: 13px;
+  line-height: 1.5;
+}
+.empty-state {
+  padding: 32px;
+  text-align: center;
   color: var(--color-text-secondary);
 }
-
+.btn {
+  padding: 10px 14px;
+  border-radius: 10px;
+  border: 1px solid var(--color-border);
+  background: var(--color-bg-tertiary);
+  color: var(--color-text-primary);
+  cursor: pointer;
+}
+.btn-small {
+  padding: 6px 10px;
+  font-size: 12px;
+}
+.btn-primary {
+  background: var(--color-accent);
+  color: #fff;
+  border-color: var(--color-accent);
+}
+.input,
+.select {
+  padding: 10px 12px;
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  background: var(--color-bg-primary);
+  color: var(--color-text-primary);
+}
 .loading {
   display: flex;
   justify-content: center;
   padding: 48px;
 }
-
 .spinner {
   width: 32px;
   height: 32px;
@@ -553,22 +686,14 @@ onMounted(() => {
   border-radius: 50%;
   animation: spin 1s linear infinite;
 }
-
 @keyframes spin {
-  to { transform: rotate(360deg); }
+  to {
+    transform: rotate(360deg);
+  }
 }
-
-@media (max-width: 768px) {
-  .stats-grid {
-    grid-template-columns: repeat(2, 1fr);
-  }
-  
-  .charts-row {
+@media (max-width: 900px) {
+  .history-content {
     grid-template-columns: 1fr;
-  }
-  
-  .pie-chart-container {
-    flex-direction: column;
   }
 }
 </style>

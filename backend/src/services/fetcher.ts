@@ -113,6 +113,61 @@ function parseDownloads(text: string): number {
   return 0;
 }
 
+function decodeHtml(text: string): string {
+  return text
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'");
+}
+
+function formatDescription(html: string): string | null {
+  if (!html) return null;
+  const withoutImages = html.replace(/<img[^>]*>/gi, ' ');
+  const text = decodeHtml(
+    withoutImages
+      .replace(/<br\s*\/?>/gi, '\n')
+      .replace(/<\/p>/gi, '\n\n')
+      .replace(/<\/div>/gi, '\n')
+      .replace(/<\/li>/gi, '\n')
+      .replace(/<li[^>]*>/gi, '• ')
+      .replace(/<[^>]+>/g, ' ')
+      .replace(/\r/g, ''),
+  )
+    .split('\n')
+    .map(line => line.replace(/\s+/g, ' ').trim())
+    .filter(Boolean)
+    .join('\n');
+  return text.substring(0, 2000) || null;
+}
+
+function extractTranslatedName(description: string | null): string | null {
+  if (!description) return null;
+  const normalized = description
+    .replace(/\u3000/g, ' ')
+    .replace(/[：:]/g, ' ')
+    .replace(/[ \t]+/g, ' ');
+  const lines = normalized
+    .split('\n')
+    .map(line => line.trim())
+    .filter(Boolean);
+
+  for (const line of lines) {
+    const cleanedLine = line
+      .replace(/^◎\s*/, '')
+      .replace(/^â\s*/, '')
+      .trim();
+    const match = cleanedLine.match(/^(?:译\s*名|è¯\s*å)\s+(.+)$/);
+    if (match?.[1]) {
+      return match[1].trim();
+    }
+  }
+
+  return null;
+}
+
 // Extract info from item
 function extractInfo(item: Record<string, any>): Partial<Resource> {
   const title = item.title || '';
@@ -186,6 +241,8 @@ function extractInfo(item: Record<string, any>): Partial<Resource> {
     }
   }
   
+  const formattedDescription = formatDescription(descText);
+
   return {
     size: parseSize(text) || parseSizeFromLength(item.enclosure?.length),
     free_tag: freeTag || parseFreeTag(text),
@@ -195,7 +252,9 @@ function extractInfo(item: Record<string, any>): Partial<Resource> {
     subtitle,
     poster_url: posterUrl,
     category: itemCategory,
-    description: descText ? descText.substring(0, 500) : null, // Store first 500 chars of description
+    translated_name: extractTranslatedName(formattedDescription),
+    description: formattedDescription,
+    description_html: descText || null,
   };
 }
 
@@ -208,8 +267,8 @@ export async function fetchSource(source: Source): Promise<number> {
     console.log(`[FETCHER] Fetching source: ${source.name}, items: ${feed.items?.length || 0}`);
 
     const insertStmt = db.prepare(`
-      INSERT INTO resources (source_id, title, link, guid, pub_date, seeders, leechers, downloads, free_tag, size, subtitle, poster_url, category, description)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO resources (source_id, title, translated_name, link, guid, pub_date, seeders, leechers, downloads, free_tag, size, subtitle, poster_url, category, description, description_html)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
     const checkStmt = db.prepare(`
@@ -226,6 +285,7 @@ export async function fetchSource(source: Source): Promise<number> {
           insertStmt.run(
             source.id,
             item.title || 'Untitled',
+            item.translated_name || null,
             link,
             guid,
             item.pubDate || null,
@@ -237,24 +297,27 @@ export async function fetchSource(source: Source): Promise<number> {
             item.subtitle || null,
             item.poster_url || null,
             item.category || source.category,
-            item.description || null
+            item.description || null,
+            item.description_html || null
           );
           newCount++;
           console.log(`[FETCHER] Inserted: ${item.title?.substring(0, 30)}...`);
         } else {
           // Resource exists, check if we need to update subtitle or poster_url
           const existing = db.prepare('SELECT * FROM resources WHERE id = ?').get(existingId.id);
-          if (existing && (item.subtitle || item.poster_url || item.category || item.description)) {
+          if (existing && (item.translated_name || item.subtitle || item.poster_url || item.category || item.description || item.description_html)) {
             // Update only if we have new values
             const updateStmt = db.prepare(`
               UPDATE resources 
-              SET subtitle = COALESCE(?, subtitle),
+              SET translated_name = COALESCE(?, translated_name),
+                  subtitle = COALESCE(?, subtitle),
                   poster_url = COALESCE(?, poster_url),
                   category = COALESCE(?, category),
-                  description = COALESCE(?, description)
+                  description = COALESCE(?, description),
+                  description_html = COALESCE(?, description_html)
               WHERE id = ?
             `);
-            updateStmt.run(item.subtitle, item.poster_url, item.category, item.description, existingId.id);
+            updateStmt.run(item.translated_name, item.subtitle, item.poster_url, item.category, item.description, item.description_html, existingId.id);
             console.log(`[FETCHER] Updated fields for: ${item.title?.substring(0, 30)}...`);
           } else {
             console.log(`[FETCHER] Skipped duplicate: ${item.title?.substring(0, 30)}...`);

@@ -1,183 +1,225 @@
 # PT RSS Monitor
 
-PT 站点 RSS 订阅管理与资源监控工具。
+PT RSS Monitor 是一个用于管理 PT RSS 订阅、资源列表、站点配置和用户数据的本地 Web 应用。
 
-## 功能特性
-
-- **RSS 源管理** - 添加、编辑、删除 RSS 源，支持分类管理
-- **自动抓取** - 支持定时自动抓取，可配置抓取间隔
-- **资源列表** - 支持按站点、分类、时间筛选，搜索标题，分页浏览
-- **主题切换** - 支持浅色/深色/跟随系统三种主题模式
-- **数据管理** - 支持自动清理旧数据，可配置保留天数
+当前项目包含：
+- RSS 源管理
+- 资源列表抓取、筛选、分页和详情展示
+- 站点设置
+- 我的数据
+- 系统设置
+- 登录认证和密码管理
 
 ## 技术栈
 
-- **后端**: Node.js + Hono + better-sqlite3 + node-cron
-- **前端**: Vue 3 + Vite + TypeScript
-- **数据库**: SQLite
-- **容器化**: Docker
+- 后端：Node.js + Hono + TypeScript + node-cron + rss-parser
+- 前端：Vue 3 + Vue Router + Vite + TypeScript
+- 数据存储：JSON 文件持久化
+- 容器部署：Docker / Docker Compose
 
-## 快速开始
+## 当前实现说明
 
-### 使用 Docker Compose（推荐）
+- 后端默认端口：`3000`
+- 前端开发端口：`5173`
+- 数据文件默认位置：`backend/data/pt-rss-monitor.json`
+- 生产模式下，后端会同时提供 API 和前端静态文件
+- 开发模式下，建议分别启动后端和前端
 
-```bash
-# 构建并启动
-docker-compose up -d
+## 默认账号
 
-# 查看日志
-docker-compose logs -f
+系统初始化时会自动创建管理员账号：
+
+- 用户名：`admin`
+- 密码：`admin@123`
+
+管理员支持：
+- 登录系统
+- 修改密码
+- 在系统设置中重置 `admin` 密码
+
+## 目录结构
+
+```text
+repo/
+├─ backend/
+│  ├─ src/
+│  │  ├─ index.ts
+│  │  ├─ db.ts
+│  │  ├─ middleware/
+│  │  ├─ routes/
+│  │  ├─ services/
+│  │  └─ types.ts
+│  ├─ data/
+│  └─ package.json
+├─ frontend/
+│  ├─ src/
+│  │  ├─ api/
+│  │  ├─ components/
+│  │  ├─ styles/
+│  │  ├─ views/
+│  │  ├─ App.vue
+│  │  └─ main.ts
+│  ├─ public/
+│  └─ package.json
+├─ Dockerfile
+├─ docker-compose.yml
+├─ docker-compose.yaml
+└─ README.md
 ```
 
-服务启动后访问 http://localhost:3000
+## 本地开发
 
-### 手动部署
+### 1. 安装依赖
 
-#### 后端
+后端：
 
 ```bash
 cd backend
 npm install
-npm run dev    # 开发模式
-# 或
-npm run build
-npm start      # 生产模式
 ```
 
-#### 前端
+前端：
 
 ```bash
 cd frontend
 npm install
-npm run dev    # 开发模式
-# 或
-npm run build  # 生产构建
 ```
 
-## 项目结构
+### 2. 启动后端
 
-```
-pt-rss-monitor/
-├── backend/
-│   ├── src/
-│   │   ├── index.ts          # Hono 入口
-│   │   ├── db.ts             # SQLite 初始化
-│   │   ├── types.ts          # TypeScript 类型
-│   │   ├── routes/
-│   │   │   ├── rss.ts        # RSS 源管理 API
-│   │   │   ├── resource.ts   # 资源列表 API
-│   │   │   └── settings.ts   # 设置 API
-│   │   └── services/
-│   │       └── fetcher.ts    # RSS 抓取 + cron
-│   └── package.json
-├── frontend/
-│   ├── src/
-│   │   ├── App.vue
-│   │   ├── main.ts
-│   │   ├── api/              # API 调用
-│   │   ├── views/
-│   │   │   ├── Dashboard.vue # 资源列表页
-│   │   │   ├── Sources.vue   # RSS 源配置页
-│   │   │   └── Settings.vue  # 设置页
-│   │   ├── components/
-│   │   │   ├── SourceCard.vue
-│   │   │   ├── ResourceRow.vue
-│   │   │   ├── ThemeToggle.vue
-│   │   │   └── AddSourceModal.vue
-│   │   └── styles/
-│   │       └── theme.css     # CSS 变量主题
-│   ├── index.html
-│   └── package.json
-├── Dockerfile
-├── docker-compose.yaml
-└── README.md
+```bash
+cd backend
+npm run build
+npm start
 ```
 
-## API 接口
+说明：
+- 这个仓库的 `npm run dev` 在部分 Windows 环境里可能会受到 `tsx/esbuild` 子进程权限限制影响。
+- 如果你在本机遇到 `spawn EPERM`，优先使用 `npm run build && npm start`。
 
-### RSS 源管理
+### 3. 启动前端
 
-| 方法   | 路径                    | 描述         |
-|--------|------------------------|--------------|
-| GET    | /api/sources           | 获取所有 RSS 源 |
-| POST   | /api/sources           | 添加 RSS 源   |
-| PUT    | /api/sources/:id       | 更新 RSS 源   |
-| DELETE | /api/sources/:id       | 删除 RSS 源   |
-| POST   | /api/sources/:id/fetch | 手动抓取      |
-| POST   | /api/sources/fetch-all | 抓取所有启用源  |
+```bash
+cd frontend
+npm run dev -- --host 127.0.0.1
+```
 
-### 资源管理
+### 4. 访问地址
 
-| 方法   | 路径                              | 描述           |
-|--------|----------------------------------|----------------|
-| GET    | /api/resources                   | 获取资源列表    |
-| DELETE | /api/resources/:id               | 删除单条资源    |
-| POST   | /api/resources/clean             | 清理旧资源      |
+- 前端开发环境：`http://127.0.0.1:5173`
+- 后端接口：`http://127.0.0.1:3000`
+- 健康检查：`http://127.0.0.1:3000/api/health`
 
-### 设置
+## Docker 部署
 
-| 方法   | 路径              | 描述           |
-|--------|------------------|----------------|
-| GET    | /api/settings    | 获取所有设置    |
-| PUT    | /api/settings    | 更新设置       |
-| GET    | /api/stats       | 获取统计信息    |
+### 构建镜像
 
-## 数据库
+```bash
+docker build -t pt-rss-monitor:latest .
+```
 
-SQLite 数据库文件位于 `data/pt-rss-monitor.db`
+### 运行容器
 
-### 表结构
+```bash
+docker run -d \
+  --name pt-rss-monitor \
+  -p 3000:3000 \
+  -v pt-rss-monitor-data:/app/data \
+  -e NODE_ENV=production \
+  -e PORT=3000 \
+  -e DB_PATH=/app/data/pt-rss-monitor.json \
+  pt-rss-monitor:latest
+```
 
-**sources** - RSS 源表
-- id: 主键
-- name: 名称
-- url: RSS 地址
-- category: 分类
-- fetch_interval: 抓取间隔（分钟）
-- enabled: 是否启用
-- created_at: 创建时间
+### 使用 Docker Compose
 
-**resources** - 资源表
-- id: 主键
-- source_id: RSS 源 ID
-- title: 标题
-- link: 下载链接
-- guid: 全局唯一标识
-- pub_date: 发布时间
-- seeders: 做种数
-- leechers: 下载数
-- downloads: 总下载次数
-- free_tag: 免费标记
-- size: 大小
-- created_at: 抓取时间
+```bash
+docker compose up -d --build
+```
 
-**settings** - 设置表
-- key: 键
-- value: 值
+访问：
+
+- `http://localhost:3000`
 
 ## 环境变量
 
-| 变量           | 默认值                | 描述           |
-|---------------|----------------------|----------------|
-| PORT          | 3000                 | 服务端口        |
-| DB_PATH       | ./data/pt-rss-monitor.db | 数据库路径   |
-| FRONTEND_DIST | ../frontend-dist     | 前端静态文件目录 |
+| 变量名 | 默认值 | 说明 |
+|---|---|---|
+| `PORT` | `3000` | 后端服务端口 |
+| `DB_PATH` | `./data/pt-rss-monitor.json` | JSON 数据文件路径 |
+| `FRONTEND_DIST` | `../frontend/dist` | 前端静态文件目录 |
+| `NODE_ENV` | `production` | 运行环境 |
 
-## 开发说明
+## 主要 API
 
-### RSS 解析规则
+### 认证
 
-解析 `<item>` 中的字段，自动提取：
-- 免费标记: `free`, `免费`, `0%`, `100%` → "FREE"
-- 折扣: `\d+%` → "50%" 等
-- 大小: `\d+\.?\d*\s*[GMKT]B?`
-- 做种: `seeders:\s*\d+`
+- `POST /api/auth/login`
+- `GET /api/auth/me`
+- `POST /api/auth/logout`
+- `POST /api/auth/change-password`
+- `POST /api/auth/reset-admin-password`
 
-### 主题配置
+### RSS 源
 
-主题使用 CSS 变量实现，支持：
-- 浅色主题
-- 深色主题
-- 跟随系统
+- `GET /api/sources`
+- `POST /api/sources`
+- `PUT /api/sources/:id`
+- `DELETE /api/sources/:id`
+- `POST /api/sources/:id/fetch`
+- `POST /api/sources/fetch-all`
 
-保存在 localStorage，key 为 `theme`。
+### 站点设置
+
+- `GET /api/sites`
+- `POST /api/sites`
+- `PUT /api/sites/:id`
+- `DELETE /api/sites/:id`
+
+### 资源列表
+
+- `GET /api/resources`
+- `DELETE /api/resources/:id`
+- `POST /api/resources/clean`
+- `POST /api/resources/clean-all`
+
+### 我的数据
+
+- `GET /api/user-data`
+- `PUT /api/user-data/:siteId`
+- `GET /api/user-data/:siteId/history`
+- `POST /api/user-data/:siteId/refresh`
+
+### 系统设置
+
+- `GET /api/settings`
+- `PUT /api/settings`
+- `GET /api/settings/stats`
+- `GET /api/settings/categories`
+- `POST /api/settings/categories`
+- `DELETE /api/settings/categories/:name`
+
+## 数据存储
+
+当前项目不使用 SQLite。
+
+所有数据默认保存在 JSON 文件中：
+
+- `backend/data/pt-rss-monitor.json`
+
+主要数据包括：
+- RSS 源
+- 站点配置
+- 资源列表
+- 系统设置
+- 用户信息
+- 登录会话
+- 用户数据历史
+
+## 背景图说明
+
+登录页背景图默认读取：
+
+- `frontend/public/login-bg.jpg`
+
+如果你希望登录页显示自定义背景图，把图片放到这个路径即可。
