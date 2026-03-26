@@ -264,24 +264,23 @@ onMounted(async () => {
 }
 
 .filter-row {
-  display: flex;
-  flex-direction: row;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: minmax(220px, 1.8fr) repeat(7, minmax(92px, 1fr)) auto;
   gap: var(--spacing-md);
-  align-items: flex-end;
+  align-items: end;
 }
 
 .filter-item {
-  min-width: 120px;
+  min-width: 0;
 }
 
 .filter-search {
-  flex: 1;
-  min-width: 220px;
+  min-width: 0;
 }
 
 .filter-actions {
-  margin-left: auto;
+  display: flex;
+  justify-content: flex-end;
 }
 
 .filter-actions .btn {
@@ -308,6 +307,7 @@ onMounted(async () => {
 
 @media (max-width: 768px) {
   .filter-row {
+    display: flex;
     flex-direction: column;
     align-items: stretch;
   }

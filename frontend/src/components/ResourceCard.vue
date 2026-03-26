@@ -22,10 +22,10 @@ const props = defineProps<{
   };
 }>();
 
-const showFullDescription = ref(false);
+const showDetailsModal = ref(false);
 
 const openLink = () => {
-  window.open(props.resource.link, '_blank');
+  window.open(props.resource.link, '_blank', 'noopener,noreferrer');
 };
 
 const badgeClass = computed(() => {
@@ -41,10 +41,10 @@ const resolution = computed(() => {
 });
 
 const resolutionClass = computed(() => {
-  const res = resolution.value;
-  if (res === '2160P') return 'res-4k';
-  if (res === '1080P') return 'res-fhd';
-  if (res === '720P') return 'res-hd';
+  const value = resolution.value;
+  if (value === '2160P') return 'res-4k';
+  if (value === '1080P') return 'res-fhd';
+  if (value === '720P') return 'res-hd';
   return 'res-sd';
 });
 
@@ -64,16 +64,15 @@ const cleanDescription = computed(() => {
     .trim();
 });
 
-const descriptionBlocks = computed(() => {
-  if (!cleanDescription.value) return [];
-  return cleanDescription.value
-    .split(/\n{2,}/)
-    .map(block => block.trim())
-    .filter(Boolean);
-});
+const descriptionBlocks = computed(() =>
+  cleanDescription.value
+    ? cleanDescription.value
+        .split(/\n{2,}/)
+        .map((block) => block.trim())
+        .filter(Boolean)
+    : [],
+);
 
-const joinedDescription = computed(() => descriptionBlocks.value.join('\n\n'));
-const hasMoreDescription = computed(() => joinedDescription.value.length > 220 || descriptionBlocks.value.length > 1);
 const translatedTitle = computed(() => props.resource.translated_name?.trim() || '');
 </script>
 
@@ -98,49 +97,94 @@ const translatedTitle = computed(() => props.resource.translated_name?.trim() ||
     </div>
 
     <div class="content">
-      <div class="header">
-        <div class="title-row">
-          <h3 class="title" @click="openLink">{{ resource.title }}</h3>
-          <span v-if="resource.free_tag" class="badge" :class="badgeClass">{{ resource.free_tag }}</span>
-          <span v-if="resolution" class="badge resolution-badge" :class="resolutionClass">{{ resolution }}</span>
-        </div>
-
-        <div class="resource-line">
-          <template v-if="translatedTitle">
-            <span class="translated-title-inline">{{ translatedTitle }}</span>
-            <span class="separator">/</span>
-          </template>
-          <span>{{ resource.category || '未分类' }}</span>
-          <span class="separator">/</span>
-          <span class="site">{{ resource.source_name }}</span>
-          <template v-if="resource.size">
-            <span class="separator">/</span>
-            <span>{{ resource.size }}</span>
-          </template>
-          <span class="separator">/</span>
-          <span>Seeders {{ resource.seeders }}</span>
-          <span class="separator">/</span>
-          <span>Leechers {{ resource.leechers }}</span>
-          <span class="separator">/</span>
-          <span>Downloads {{ resource.downloads }}</span>
-        </div>
+      <div class="title-row">
+        <h3 class="title" @click="openLink">{{ resource.title }}</h3>
+        <span v-if="resource.free_tag" class="badge" :class="badgeClass">{{ resource.free_tag }}</span>
+        <span v-if="resolution" class="badge resolution-badge" :class="resolutionClass">{{ resolution }}</span>
       </div>
 
-      <div v-if="descriptionBlocks.length" class="description">
-        <div class="description-header">
-          <span class="description-title">详情</span>
-          <button v-if="hasMoreDescription" class="toggle-btn" @click="showFullDescription = !showFullDescription">
-            {{ showFullDescription ? '收起' : '展开' }}
-          </button>
+      <div class="resource-line">
+        <template v-if="translatedTitle">
+          <span class="translated-title-inline">{{ translatedTitle }}</span>
+          <span class="separator">/</span>
+        </template>
+        <span>{{ resource.category || '未分类' }}</span>
+        <span class="separator">/</span>
+        <span class="site">{{ resource.source_name }}</span>
+        <template v-if="resource.size">
+          <span class="separator">/</span>
+          <span>{{ resource.size }}</span>
+        </template>
+        <span class="separator">/</span>
+        <span>做种 {{ resource.seeders }}</span>
+        <span class="separator">/</span>
+        <span>下载中 {{ resource.leechers }}</span>
+        <span class="separator">/</span>
+        <span>完成 {{ resource.downloads }}</span>
+      </div>
+
+      <div class="action-row">
+        <button class="details-btn" type="button" @click="showDetailsModal = true">详情</button>
+      </div>
+    </div>
+  </div>
+
+  <Teleport to="body">
+    <div v-if="showDetailsModal" class="modal-overlay" @click.self="showDetailsModal = false">
+      <div class="details-modal">
+        <div class="modal-header">
+          <div>
+            <h3 class="modal-title">{{ resource.title }}</h3>
+            <p v-if="translatedTitle" class="modal-subtitle">{{ translatedTitle }}</p>
+          </div>
+          <button class="modal-close" type="button" @click="showDetailsModal = false">&times;</button>
         </div>
-        <div class="description-body">
-          <div :class="['description-text', { collapsed: !showFullDescription }]">
-            {{ joinedDescription }}
+
+        <div class="modal-body">
+          <div class="modal-poster">
+            <img
+              v-if="resource.poster_url"
+              :src="resource.poster_url"
+              :alt="resource.title"
+              class="modal-poster-img"
+              loading="lazy"
+              decoding="async"
+              referrerpolicy="no-referrer"
+            />
+            <div v-else class="poster-placeholder modal-placeholder">
+              <svg viewBox="0 0 24 24" fill="currentColor">
+                <path d="M18 4l2 4h-3l-2-4h-2l2 4h-3l-2-4H8l2 4H7L5 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V4h-4z" />
+              </svg>
+            </div>
+          </div>
+
+          <div class="modal-content">
+            <div class="modal-meta">
+              <span>{{ resource.category || '未分类' }}</span>
+              <span>{{ resource.source_name }}</span>
+              <span v-if="resource.size">{{ resource.size }}</span>
+              <span>做种 {{ resource.seeders }}</span>
+              <span>下载中 {{ resource.leechers }}</span>
+              <span>完成 {{ resource.downloads }}</span>
+            </div>
+
+            <div class="details-panel">
+              <div class="details-panel-header">
+                <span>资源详情</span>
+                <button class="link-btn" type="button" @click="openLink">打开原始链接</button>
+              </div>
+              <div v-if="descriptionBlocks.length" class="details-text">
+                <p v-for="(block, index) in descriptionBlocks" :key="`${resource.id}-${index}`">
+                  {{ block }}
+                </p>
+              </div>
+              <div v-else class="empty-text">暂无详情内容</div>
+            </div>
           </div>
         </div>
       </div>
     </div>
-  </div>
+  </Teleport>
 </template>
 
 <style scoped>
@@ -164,7 +208,8 @@ const translatedTitle = computed(() => props.resource.translated_name?.trim() ||
   border: 1px solid var(--color-border);
 }
 
-.poster-img {
+.poster-img,
+.modal-poster-img {
   width: 100%;
   height: 100%;
   object-fit: cover;
@@ -180,8 +225,8 @@ const translatedTitle = computed(() => props.resource.translated_name?.trim() ||
 }
 
 .poster-placeholder svg {
-  width: 48px;
-  height: 48px;
+  width: 42px;
+  height: 42px;
 }
 
 .content {
@@ -189,7 +234,7 @@ const translatedTitle = computed(() => props.resource.translated_name?.trim() ||
   min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 12px;
 }
 
 .title-row {
@@ -218,19 +263,18 @@ const translatedTitle = computed(() => props.resource.translated_name?.trim() ||
   align-items: center;
   gap: 8px;
   flex-wrap: wrap;
-  margin-top: 8px;
   font-size: 13px;
   color: var(--color-text-secondary);
-}
-
-.site {
-  color: var(--color-accent);
-  font-weight: 600;
 }
 
 .translated-title-inline {
   color: var(--color-text-primary);
   opacity: 0.82;
+}
+
+.site {
+  color: var(--color-accent);
+  font-weight: 600;
 }
 
 .separator {
@@ -283,60 +327,147 @@ const translatedTitle = computed(() => props.resource.translated_name?.trim() ||
   color: #fff;
 }
 
-.description {
-  padding: 14px 16px;
-  border-radius: 12px;
-  background: linear-gradient(180deg, rgba(37, 99, 235, 0.06), rgba(37, 99, 235, 0.02));
-  border: 1px solid rgba(37, 99, 235, 0.14);
+.action-row {
+  display: flex;
+  justify-content: flex-end;
 }
 
-.description-header {
+.details-btn,
+.link-btn {
+  padding: 8px 14px;
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  background: var(--color-bg-primary);
+  color: var(--color-text-primary);
+  cursor: pointer;
+}
+
+.details-btn:hover,
+.link-btn:hover {
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+}
+
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.68);
   display: flex;
   align-items: center;
+  justify-content: center;
+  padding: 24px;
+  z-index: 1200;
+}
+
+.details-modal {
+  width: min(980px, 100%);
+  max-height: 90vh;
+  overflow: auto;
+  background: var(--color-bg-primary);
+  border: 1px solid var(--color-border);
+  border-radius: 18px;
+  padding: 24px;
+  box-shadow: 0 28px 60px rgba(15, 23, 42, 0.32);
+}
+
+.modal-header {
+  display: flex;
   justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 10px;
+  gap: 16px;
+  align-items: flex-start;
+  margin-bottom: 18px;
 }
 
-.description-title {
-  font-size: 12px;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: var(--color-accent);
+.modal-title {
+  margin: 0;
+  font-size: 22px;
 }
 
-.description-body {
-  display: block;
-}
-
-.description-text {
-  font-size: 13px;
-  line-height: 1.6;
+.modal-subtitle {
+  margin: 6px 0 0;
   color: var(--color-text-secondary);
-  white-space: pre-wrap;
-  word-break: break-word;
-  display: -webkit-box;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
 }
 
-.description-text.collapsed {
-  -webkit-line-clamp: 5;
-}
-
-.toggle-btn {
-  padding: 0;
+.modal-close {
   border: none;
   background: transparent;
-  color: var(--color-accent);
+  font-size: 30px;
+  color: var(--color-text-secondary);
   cursor: pointer;
-  font-size: 12px;
-  font-weight: 600;
+  line-height: 1;
 }
 
-.toggle-btn:hover {
-  text-decoration: underline;
+.modal-body {
+  display: grid;
+  grid-template-columns: 90px 1fr;
+  gap: 20px;
+}
+
+.modal-poster {
+  width: 90px;
+  height: 125px;
+  overflow: hidden;
+  border-radius: 10px;
+  border: 1px solid var(--color-border);
+  background: var(--color-bg-secondary);
+}
+
+.modal-placeholder svg {
+  width: 32px;
+  height: 32px;
+}
+
+.modal-content {
+  display: grid;
+  gap: 16px;
+}
+
+.modal-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  color: var(--color-text-secondary);
+  font-size: 13px;
+}
+
+.modal-meta span {
+  padding: 6px 10px;
+  border-radius: 999px;
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-border);
+}
+
+.details-panel {
+  border: 1px solid var(--color-border);
+  background: var(--color-bg-secondary);
+  border-radius: 14px;
+  padding: 16px;
+}
+
+.details-panel-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 14px;
+  font-weight: 700;
+}
+
+.details-text {
+  display: grid;
+  gap: 10px;
+  color: var(--color-text-secondary);
+  line-height: 1.7;
+}
+
+.details-text p {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.empty-text {
+  color: var(--color-text-muted);
 }
 
 @media (max-width: 720px) {
@@ -349,9 +480,13 @@ const translatedTitle = computed(() => props.resource.translated_name?.trim() ||
     height: 136px;
   }
 
-  .resource-line {
-    gap: 6px;
+  .modal-body {
+    grid-template-columns: 1fr;
   }
 
+  .modal-poster {
+    width: 90px;
+    height: 125px;
+  }
 }
 </style>

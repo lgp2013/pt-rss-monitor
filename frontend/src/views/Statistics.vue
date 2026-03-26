@@ -8,6 +8,9 @@ interface UserDataRow extends Site {
 
 const loading = ref(false);
 const saving = ref(false);
+const batchRunning = ref(false);
+const showBatchOpenModal = ref(false);
+const batchOpenUrls = ref<string[]>([]);
 const sources = ref<Site[]>([]);
 const userData = ref<UserData[]>([]);
 const history = ref<UserDataHistory[]>([]);
@@ -18,6 +21,7 @@ const showEditModal = ref(false);
 const showHistoryModal = ref(false);
 const syncingSourceId = ref<number | null>(null);
 const activeRow = ref<UserDataRow | null>(null);
+const selectedIds = ref<number[]>([]);
 
 const form = ref({
   username: '',
@@ -42,29 +46,32 @@ const form = ref({
 });
 
 const rows = computed<UserDataRow[]>(() => {
-  const dataMap = new Map(userData.value.map(item => [item.site_id, item]));
-  return sources.value.map(source => ({
+  const dataMap = new Map(userData.value.map((item) => [item.site_id, item]));
+  return sources.value.map((source) => ({
     ...source,
     userData: dataMap.get(source.id),
   }));
 });
 
-const categories = computed(() => [...new Set(rows.value.map(item => item.category).filter(Boolean))]);
+const categories = computed(() => [...new Set(rows.value.map((item) => item.category).filter(Boolean))]);
 
 const filteredRows = computed(() => {
   const keyword = search.value.trim().toLowerCase();
-  return rows.value.filter(item => {
+  return rows.value.filter((item) => {
     const matchesKeyword =
       !keyword ||
       [item.custom_name, item.name, item.site_url, item.userData?.username, item.userData?.level_name]
         .filter(Boolean)
-        .some(value => String(value).toLowerCase().includes(keyword));
+        .some((value) => String(value).toLowerCase().includes(keyword));
 
     const matchesCategory = !category.value || item.category === category.value;
     const matchesStatus = !status.value || (item.userData?.status || 'missing') === status.value;
     return matchesKeyword && matchesCategory && matchesStatus;
   });
 });
+
+const selectedRows = computed(() => filteredRows.value.filter((row) => selectedIds.value.includes(row.id)));
+const allSelected = computed(() => filteredRows.value.length > 0 && filteredRows.value.every((row) => selectedIds.value.includes(row.id)));
 
 const summary = computed(() => {
   const items = userData.value;
@@ -86,7 +93,7 @@ function formatBytes(value: number | null | undefined): string {
   let index = 0;
   while (size >= 1024 && index < units.length - 1) {
     size /= 1024;
-    index++;
+    index += 1;
   }
   return `${size.toFixed(index === 0 ? 0 : 2)} ${units[index]}`;
 }
@@ -109,15 +116,51 @@ function toNumberOrNull(value: string): number | null {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
+function syncSelection() {
+  const validIds = new Set(rows.value.map((row) => row.id));
+  selectedIds.value = selectedIds.value.filter((id) => validIds.has(id));
+}
+
+function getSelectedRowsSnapshot(): UserDataRow[] {
+  const selectedSet = new Set(selectedIds.value);
+  return rows.value.filter((row) => selectedSet.has(row.id));
+}
+
 async function loadData() {
   loading.value = true;
   try {
     const [sourceItems, dataItems] = await Promise.all([sitesApi.list(), userDataApi.list()]);
     sources.value = sourceItems;
     userData.value = dataItems;
+    syncSelection();
   } finally {
     loading.value = false;
   }
+}
+
+function toggleSelectAll(checked: boolean) {
+  if (!checked) {
+    selectedIds.value = selectedIds.value.filter((id) => !filteredRows.value.some((row) => row.id === id));
+    return;
+  }
+
+  const merged = new Set(selectedIds.value);
+  filteredRows.value.forEach((row) => merged.add(row.id));
+  selectedIds.value = [...merged];
+}
+
+function toggleRowSelection(id: number, checked: boolean) {
+  if (checked) {
+    if (!selectedIds.value.includes(id)) {
+      selectedIds.value = [...selectedIds.value, id];
+    }
+    return;
+  }
+  selectedIds.value = selectedIds.value.filter((item) => item !== id);
+}
+
+function clearSelection() {
+  selectedIds.value = [];
 }
 
 function openEdit(row: UserDataRow) {
@@ -186,38 +229,112 @@ async function openHistory(row: UserDataRow) {
 }
 
 function openLogin(row: UserDataRow) {
-  const target = row.site_url;
-  if (!target) {
+  if (!row.site_url) {
     alert('该站点未配置网站地址');
     return;
   }
-  window.open(target, '_blank', 'noopener,noreferrer');
+  window.open(row.site_url, '_blank', 'noopener,noreferrer');
 }
 
 async function refreshUserData(row: UserDataRow) {
   syncingSourceId.value = row.id;
   try {
-      const result = await userDataApi.refresh(row.id);
+    const result = await userDataApi.refresh(row.id);
     if (result.need_login) {
       if (result.site_url) {
         window.open(result.site_url, '_blank', 'noopener,noreferrer');
       }
-      alert('站点当前未登录或 Cookie 无效。已为你打开站点，请先登录后再点击刷新。');
+      alert('当前站点未登录或 Cookie 无效，已为你打开站点，请先登录后再刷新。');
     } else if (!result.success) {
-      alert(result.error || '刷新失败');
+      alert(result.error || '刷新抓取失败');
     }
     await loadData();
   } catch (error) {
-    alert(error instanceof Error ? error.message : '刷新失败');
+    alert(error instanceof Error ? error.message : '刷新抓取失败');
   } finally {
     syncingSourceId.value = null;
+  }
+}
+
+async function batchRefresh() {
+  const targets = getSelectedRowsSnapshot();
+  if (!targets.length) return;
+
+  batchRunning.value = true;
+  const resultSummary = {
+    success: 0,
+    needLogin: 0,
+    failed: 0,
+  };
+
+  try {
+    for (const row of targets) {
+      syncingSourceId.value = row.id;
+      try {
+        const result = await userDataApi.refresh(row.id);
+        if (result.need_login) {
+          resultSummary.needLogin += 1;
+        } else if (result.success) {
+          resultSummary.success += 1;
+        } else {
+          resultSummary.failed += 1;
+        }
+      } catch {
+        resultSummary.failed += 1;
+      }
+    }
+    await loadData();
+  } finally {
+    syncingSourceId.value = null;
+    batchRunning.value = false;
+  }
+
+  alert(`刷新完成：成功 ${resultSummary.success} 个，需登录 ${resultSummary.needLogin} 个，失败 ${resultSummary.failed} 个。`);
+}
+
+async function copyBatchUrls() {
+  if (!batchOpenUrls.value.length) return;
+  const text = batchOpenUrls.value.join('\n');
+  try {
+    await navigator.clipboard.writeText(text);
+    alert('已复制站点链接。');
+  } catch {
+    alert('复制失败，请手动复制链接。');
+  }
+}
+
+function batchOpenSites() {
+  const targets = getSelectedRowsSnapshot();
+  const urls = targets.map((row) => row.site_url).filter(Boolean) as string[];
+  if (!urls.length) {
+    alert('没有可打开的站点地址。');
+    return;
+  }
+  batchOpenUrls.value = urls;
+  showBatchOpenModal.value = true;
+}
+
+async function batchDeleteSites() {
+  const targets = getSelectedRowsSnapshot();
+  if (!targets.length) return;
+  if (!confirm(`确定删除已选中的 ${targets.length} 个站点吗？`)) return;
+
+  batchRunning.value = true;
+  try {
+    for (const row of targets) {
+      await sitesApi.delete(row.id);
+    }
+    clearSelection();
+    await loadData();
+  } finally {
+    batchRunning.value = false;
   }
 }
 
 function buildPoints(items: UserDataHistory[], field: 'uploaded' | 'downloaded' | 'bonus'): string {
   if (items.length === 0) return '';
   const ordered = [...items].reverse();
-  const values = ordered.map(item => Number(item[field] || 0));
+  const values = ordered.map((item) => Number(item[field] || 0));
   const max = Math.max(...values, 1);
   return values
     .map((value, index) => {
@@ -236,7 +353,7 @@ onMounted(loadData);
     <div class="page-header">
       <div>
         <h1 class="page-title">我的数据</h1>
-        <p class="page-subtitle">按站点维护账号数据，并自动记录每次保存的历史快照。</p>
+        <p class="page-subtitle">按站点维护账号数据，支持刷新抓取、打开站点和删除站点。</p>
       </div>
       <button class="btn" @click="loadData">刷新</button>
     </div>
@@ -283,12 +400,32 @@ onMounted(loadData);
       </select>
     </div>
 
+    <div class="batch-toolbar card">
+      <div class="batch-left">
+        <label class="checkbox-label">
+          <input :checked="allSelected" type="checkbox" @change="toggleSelectAll(($event.target as HTMLInputElement).checked)" />
+          <span>全选当前列表</span>
+        </label>
+        <span class="selected-count">已选 {{ selectedRows.length }} 个站点</span>
+      </div>
+      <div class="batch-actions">
+        <button class="btn" :disabled="!selectedRows.length || batchRunning" @click="batchRefresh">
+          {{ batchRunning ? '处理中...' : '刷新抓取' }}
+        </button>
+        <button class="btn" :disabled="!selectedRows.length" @click="batchOpenSites">打开站点</button>
+        <button class="btn btn-danger" :disabled="!selectedRows.length || batchRunning" @click="batchDeleteSites">删除站点</button>
+      </div>
+    </div>
+
     <div v-if="loading" class="loading"><div class="spinner"></div></div>
 
     <div v-else class="card table-card">
       <table class="data-table">
         <thead>
           <tr>
+            <th class="checkbox-col">
+              <input :checked="allSelected" type="checkbox" @change="toggleSelectAll(($event.target as HTMLInputElement).checked)" />
+            </th>
             <th>站点</th>
             <th>用户</th>
             <th>等级</th>
@@ -303,6 +440,13 @@ onMounted(loadData);
         </thead>
         <tbody>
           <tr v-for="row in filteredRows" :key="row.id">
+            <td class="checkbox-col">
+              <input
+                :checked="selectedIds.includes(row.id)"
+                type="checkbox"
+                @change="toggleRowSelection(row.id, ($event.target as HTMLInputElement).checked)"
+              />
+            </td>
             <td>
               <div class="site-cell">
                 <strong>{{ row.custom_name || row.name }}</strong>
@@ -348,13 +492,42 @@ onMounted(loadData);
               </div>
             </td>
           </tr>
+          <tr v-if="filteredRows.length === 0">
+            <td colspan="11" class="empty-cell">当前没有匹配的数据</td>
+          </tr>
         </tbody>
       </table>
     </div>
 
+    <div v-if="showBatchOpenModal" class="modal-overlay" @click.self="showBatchOpenModal = false">
+      <div class="modal batch-open-modal">
+        <div class="modal-header">
+          <h2>已选站点链接</h2>
+          <button class="modal-close" @click="showBatchOpenModal = false">&times;</button>
+        </div>
+        <p class="modal-note">浏览器会拦截普通网页一次点击打开多个第三方标签页。这里保留可逐个打开的链接，并支持一键复制全部链接。</p>
+        <div class="modal-footer batch-open-actions">
+          <button class="btn" @click="copyBatchUrls">复制全部链接</button>
+          <button class="btn" @click="showBatchOpenModal = false">关闭</button>
+        </div>
+        <div class="batch-url-list">
+          <a
+            v-for="url in batchOpenUrls"
+            :key="url"
+            :href="url"
+            target="_blank"
+            rel="noopener noreferrer"
+            class="batch-url-item"
+          >
+            {{ url }}
+          </a>
+        </div>
+      </div>
+    </div>
+
     <div v-if="showEditModal && activeRow" class="modal-overlay" @click.self="showEditModal = false">
       <div class="modal large-modal">
-      <div class="modal-header">
+        <div class="modal-header">
           <h2>{{ activeRow.custom_name || activeRow.name }} - 数据编辑</h2>
           <button class="modal-close" @click="showEditModal = false">&times;</button>
         </div>
@@ -433,6 +606,7 @@ onMounted(loadData);
   max-width: 1400px;
   margin: 0 auto;
 }
+
 .page-header {
   display: flex;
   justify-content: space-between;
@@ -440,20 +614,24 @@ onMounted(loadData);
   gap: 16px;
   margin-bottom: 20px;
 }
+
 .page-title {
   font-size: 28px;
   margin: 0 0 6px;
 }
+
 .page-subtitle {
   margin: 0;
   color: var(--color-text-secondary);
 }
+
 .summary-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
   gap: 12px;
   margin-bottom: 16px;
 }
+
 .summary-card,
 .card {
   background: var(--color-bg-secondary);
@@ -461,32 +639,61 @@ onMounted(loadData);
   border-radius: 12px;
   padding: 16px;
 }
+
 .summary-label {
   color: var(--color-text-secondary);
   font-size: 13px;
   margin-bottom: 8px;
 }
+
 .summary-value {
   font-size: 24px;
   font-weight: 700;
 }
-.toolbar {
+
+.toolbar,
+.batch-toolbar,
+.batch-left,
+.batch-actions,
+.batch-open-actions {
   display: flex;
   gap: 12px;
-  margin-bottom: 16px;
   flex-wrap: wrap;
+  align-items: center;
 }
+
+.toolbar,
+.batch-toolbar {
+  margin-bottom: 16px;
+}
+
 .search-input {
   flex: 1;
   min-width: 220px;
 }
+
+.selected-count,
+.text-muted,
+.modal-note {
+  color: var(--color-text-secondary);
+  font-size: 12px;
+}
+
+.checkbox-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .table-card {
   overflow-x: auto;
 }
+
 .data-table {
   width: 100%;
   border-collapse: collapse;
 }
+
 .data-table th,
 .data-table td {
   padding: 12px 10px;
@@ -494,25 +701,30 @@ onMounted(loadData);
   text-align: left;
   vertical-align: top;
 }
+
 .data-table th {
   color: var(--color-text-secondary);
   font-size: 13px;
   white-space: nowrap;
 }
+
+.checkbox-col {
+  width: 42px;
+}
+
 .site-cell,
-.stack-cell,
-.action-row {
+.stack-cell {
   display: flex;
   flex-direction: column;
   gap: 4px;
 }
+
 .action-row {
-  flex-direction: row;
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
 }
-.text-muted {
-  color: var(--color-text-secondary);
-  font-size: 12px;
-}
+
 .status-badge {
   display: inline-block;
   padding: 2px 8px;
@@ -520,19 +732,30 @@ onMounted(loadData);
   font-size: 12px;
   text-transform: uppercase;
 }
+
 .status-badge.success {
   background: rgba(34, 197, 94, 0.12);
   color: #15803d;
 }
+
 .status-badge.warning {
   background: rgba(245, 158, 11, 0.12);
   color: #b45309;
 }
+
 .status-badge.error,
 .status-badge.missing {
   background: rgba(239, 68, 68, 0.12);
   color: #b91c1c;
 }
+
+.empty-cell,
+.empty-state {
+  padding: 32px;
+  text-align: center;
+  color: var(--color-text-secondary);
+}
+
 .modal-overlay {
   position: fixed;
   inset: 0;
@@ -543,6 +766,7 @@ onMounted(loadData);
   z-index: 200;
   padding: 20px;
 }
+
 .modal {
   width: min(1100px, 100%);
   max-height: 90vh;
@@ -552,15 +776,42 @@ onMounted(loadData);
   border: 1px solid var(--color-border);
   padding: 20px;
 }
+
 .history-modal {
   width: min(900px, 100%);
 }
+
+.batch-open-modal {
+  width: min(760px, 100%);
+}
+
+.batch-url-list {
+  display: grid;
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.batch-url-item {
+  padding: 12px 14px;
+  border-radius: 10px;
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-border);
+  color: var(--color-accent);
+  text-decoration: none;
+  word-break: break-all;
+}
+
+.batch-url-item:hover {
+  border-color: var(--color-accent);
+}
+
 .modal-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
   margin-bottom: 16px;
 }
+
 .modal-close {
   border: none;
   background: transparent;
@@ -568,61 +819,73 @@ onMounted(loadData);
   cursor: pointer;
   color: var(--color-text-secondary);
 }
+
 .modal-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
   gap: 12px;
 }
+
 .form-group {
   display: flex;
   flex-direction: column;
   gap: 6px;
 }
+
 .modal-footer {
   display: flex;
   justify-content: flex-end;
   gap: 10px;
   margin-top: 18px;
 }
+
 .history-content {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 16px;
 }
+
 .chart-box,
 .history-list {
   background: var(--color-bg-secondary);
   border-radius: 12px;
   padding: 14px;
 }
+
 .trend-chart {
   width: 100%;
   height: 120px;
 }
+
 .trend-line {
   fill: none;
   stroke-width: 3;
 }
+
 .trend-line.upload,
 .legend-dot.upload {
   stroke: #2563eb;
   background: #2563eb;
 }
+
 .trend-line.download,
 .legend-dot.download {
   stroke: #dc2626;
   background: #dc2626;
 }
+
 .trend-line.bonus,
 .legend-dot.bonus {
   stroke: #16a34a;
   background: #16a34a;
 }
+
 .chart-legend {
   display: flex;
   gap: 16px;
   font-size: 13px;
 }
+
 .legend-dot {
   width: 10px;
   height: 10px;
@@ -630,11 +893,13 @@ onMounted(loadData);
   display: inline-block;
   margin-right: 6px;
 }
+
 .history-list {
   display: flex;
   flex-direction: column;
   gap: 10px;
 }
+
 .history-item {
   padding: 10px 12px;
   border-radius: 10px;
@@ -643,11 +908,7 @@ onMounted(loadData);
   font-size: 13px;
   line-height: 1.5;
 }
-.empty-state {
-  padding: 32px;
-  text-align: center;
-  color: var(--color-text-secondary);
-}
+
 .btn {
   padding: 10px 14px;
   border-radius: 10px;
@@ -656,15 +917,24 @@ onMounted(loadData);
   color: var(--color-text-primary);
   cursor: pointer;
 }
+
 .btn-small {
   padding: 6px 10px;
   font-size: 12px;
 }
+
 .btn-primary {
   background: var(--color-accent);
   color: #fff;
   border-color: var(--color-accent);
 }
+
+.btn-danger {
+  border-color: rgba(239, 68, 68, 0.25);
+  background: rgba(239, 68, 68, 0.08);
+  color: #b91c1c;
+}
+
 .input,
 .select {
   padding: 10px 12px;
@@ -673,11 +943,13 @@ onMounted(loadData);
   background: var(--color-bg-primary);
   color: var(--color-text-primary);
 }
+
 .loading {
   display: flex;
   justify-content: center;
   padding: 48px;
 }
+
 .spinner {
   width: 32px;
   height: 32px;
@@ -686,14 +958,21 @@ onMounted(loadData);
   border-radius: 50%;
   animation: spin 1s linear infinite;
 }
+
 @keyframes spin {
   to {
     transform: rotate(360deg);
   }
 }
+
 @media (max-width: 900px) {
   .history-content {
     grid-template-columns: 1fr;
+  }
+
+  .page-header {
+    flex-direction: column;
+    align-items: stretch;
   }
 }
 </style>
